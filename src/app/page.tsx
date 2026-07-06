@@ -170,6 +170,13 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [roomExpanded, setRoomExpanded] = useState<Set<string>>(new Set());
 
+  // quick check-in state
+  const [quickCheckinOpen, setQuickCheckinOpen] = useState(false);
+  const [qcStaffId, setQcStaffId] = useState("");
+  const [qcRoomId, setQcRoomId] = useState("");
+  const [qcStart, setQcStart] = useState("");
+  const [qcEnd, setQcEnd] = useState("");
+
   function toggleRoom(id: string) {
     setRoomExpanded((prev) => {
       const next = new Set(prev);
@@ -211,6 +218,17 @@ export default function App() {
 
   const staffById = useMemo(() => Object.fromEntries(staff.map((s) => [s.id, s])), [staff]);
   const activeStaffIdsGlobal = useMemo(() => new Set(activeSessions.map((s) => s.staffId)), [activeSessions]);
+  const qcPerson = qcStaffId ? staffById[qcStaffId] : null;
+  const qcHours = qcStart && qcEnd ? Math.max(0, (new Date(qcEnd).getTime() - new Date(qcStart).getTime()) / 3600000) : 0;
+  const qcAmount = qcPerson ? qcPerson.rate * qcHours : 0;
+
+  function resetQuickCheckin() {
+    setQcStaffId("");
+    setQcRoomId("");
+    setQcStart("");
+    setQcEnd("");
+    setQuickCheckinOpen(false);
+  }
 
   function startSession(roomId: string, staffId: string) {
     const room = rooms.find((r) => r.id === roomId);
@@ -471,12 +489,12 @@ export default function App() {
               sub="Tổng số"
               accent
             />
-          </div>
+            </div>
         )}
 
         {/* ---------------- TAB: DASHBOARD (phòng) ---------------- */}
         {tab === "dashboard" && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
             {rooms.map((room) => {
               const sessions = activeSessions.filter((s) => s.roomId === room.id);
               const isActive = sessions.length > 0;
@@ -898,6 +916,127 @@ export default function App() {
         </div>
       )}
 
+      {/* Quick Check-in modal */}
+      {quickCheckinOpen && (
+        <div className="fixed inset-0 flex items-end sm:items-center justify-center z-50" style={{ background: "rgba(15,18,24,0.45)" }} onClick={resetQuickCheckin}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 sheet-in" style={{ background: COLORS.surface }}>
+            <div className="w-9 h-1 rounded-full mx-auto mb-4 sm:hidden" style={{ background: COLORS.border }} />
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-lg font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Check-in nhanh</div>
+              <button onClick={resetQuickCheckin} style={{ color: COLORS.textFaint }}><X size={20} /></button>
+            </div>
+            <div className="flex flex-col gap-3">
+              {/* Chọn nhân viên */}
+              <div>
+                <label className="text-xs font-medium mb-1.5 block" style={{ color: COLORS.textMuted }}>Nhân viên</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {staff.map((p) => (
+                    <button key={p.id} onClick={() => setQcStaffId(p.id)}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg"
+                      style={{ background: qcStaffId === p.id ? COLORS.primary : COLORS.bgSubtle, color: qcStaffId === p.id ? "#FFFFFF" : COLORS.textMuted, border: `1px solid ${qcStaffId === p.id ? COLORS.primary : COLORS.border}` }}>
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Chọn phòng */}
+              <div>
+                <label className="text-xs font-medium mb-1.5 block" style={{ color: COLORS.textMuted }}>Phòng</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {rooms.map((r) => (
+                    <button key={r.id} onClick={() => setQcRoomId(r.id)}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg"
+                      style={{ background: qcRoomId === r.id ? COLORS.primary : COLORS.bgSubtle, color: qcRoomId === r.id ? "#FFFFFF" : COLORS.textMuted, border: `1px solid ${qcRoomId === r.id ? COLORS.primary : COLORS.border}` }}>
+                      {r.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Thời gian vào */}
+              <div>
+                <label className="text-xs font-medium mb-1 block" style={{ color: COLORS.textMuted }}>Giờ vào</label>
+                <input type="datetime-local" value={qcStart} onChange={(e) => setQcStart(e.target.value)}
+                  className="w-full rounded-xl px-4 py-3 text-sm"
+                  style={{ background: COLORS.bgSubtle, border: `1px solid ${COLORS.border}`, color: COLORS.textPrimary, fontFamily: "'JetBrains Mono', monospace" }} />
+              </div>
+              {/* Thời gian ra */}
+              <div>
+                <label className="text-xs font-medium mb-1 block" style={{ color: COLORS.textMuted }}>Giờ ra</label>
+                <input type="datetime-local" value={qcEnd} onChange={(e) => setQcEnd(e.target.value)}
+                  className="w-full rounded-xl px-4 py-3 text-sm"
+                  style={{ background: COLORS.bgSubtle, border: `1px solid ${COLORS.border}`, color: COLORS.textPrimary, fontFamily: "'JetBrains Mono', monospace" }} />
+              </div>
+              {/* Preview + Tạo hoá đơn */}
+              {qcStaffId && qcRoomId && qcStart && qcEnd && qcPerson ? (
+                <div className="rounded-xl p-4" style={{ background: COLORS.bgSubtle, border: `1px solid ${COLORS.border}` }}>
+                  {qcHours <= 0 ? (
+                    <div className="text-xs mb-3" style={{ color: COLORS.red }}>Giờ ra phải sau giờ vào</div>
+                  ) : (
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <div className="text-xs font-medium" style={{ color: COLORS.textMuted }}>{qcPerson.name} · {rooms.find((r) => r.id === qcRoomId)?.name}</div>
+                        <div className="text-sm font-semibold mt-0.5" style={{ color: COLORS.primary }}>{qcHours.toFixed(2)} giờ · {formatMoney(qcAmount)}</div>
+                      </div>
+                    </div>
+                  )}
+                  <button
+                    onClick={async () => {
+                      const room = rooms.find((r) => r.id === qcRoomId);
+                      if (!qcPerson || !room || qcHours <= 0) return;
+                      const newSession: CompletedSession = {
+                        id: `quick-${Date.now()}`,
+                        roomName: room.name,
+                        roomId: qcRoomId,
+                        staffId: qcStaffId,
+                        staffName: qcPerson.name,
+                        start: new Date(qcStart).getTime(),
+                        end: new Date(qcEnd).getTime(),
+                        hours: qcHours,
+                        amount: qcAmount,
+                        invoiceImage: null,
+                      };
+                      setCompletedSessions((prev) => [...prev, newSession]);
+                      resetQuickCheckin();
+                      const imgDiv = document.createElement("div");
+                      imgDiv.style.position = "fixed"; imgDiv.style.left = "-9999px"; imgDiv.style.top = "0";
+                      document.body.appendChild(imgDiv);
+                      const root = document.createElement("div");
+                      root.innerHTML = `<div style="background:#FFFFFF;padding:24px;width:360px;font-family:sans-serif">
+                        <div style="font-size:18px;font-weight:700;margin-bottom:12px;color:#15181F">Hoá đơn ca làm</div>
+                        <div style="font-size:13px;margin-bottom:4px;color:#15181F"><strong>${newSession.staffName}</strong></div>
+                        <div style="font-size:11px;color:#9AA1AC;margin-bottom:12px">${room.name} · ${formatDate(new Date(newSession.start))}</div>
+                        <div style="display:flex;justify-content:space-between;font-size:12px;color:#6B7280;margin-bottom:8px">
+                          <span>Giờ vào: ${formatClock(new Date(newSession.start))}</span>
+                          <span>Giờ ra: ${formatClock(new Date(newSession.end))}</span>
+                        </div>
+                        <div style="border-top:1px solid #E7E9EE;padding-top:10px;display:flex;justify-content:space-between;font-size:14px;font-weight:700;color:#15181F">
+                          <span>${newSession.hours.toFixed(2)} giờ</span>
+                          <span>${formatMoney(newSession.amount)}</span>
+                        </div>
+                      </div>`;
+                      imgDiv.appendChild(root);
+                      try {
+                        const { toPng } = await import("html-to-image");
+                        const dataUrl = await toPng(root, { quality: 1, pixelRatio: 2, backgroundColor: "#FFFFFF" });
+                        setCompletedSessions((prev) => prev.map((s) => s.id === newSession.id ? { ...s, invoiceImage: dataUrl } : s));
+                        downloadInvoice(dataUrl, `hoa-don_${newSession.staffName}_${formatDate(new Date(newSession.start))}.png`);
+                      } catch { /* ignore */ }
+                      document.body.removeChild(imgDiv);
+                    }}
+                    className="w-full rounded-xl py-3 text-sm font-semibold flex items-center justify-center gap-2"
+                    style={{ background: qcHours > 0 ? COLORS.primary : COLORS.border, color: "#FFFFFF" }}
+                  >
+                    <Download size={16} /> Tạo hoá đơn
+                  </button>
+                </div>
+              ) : (
+                <div className="text-xs text-center py-3" style={{ color: COLORS.textFaint }}>Chọn nhân viên, phòng, giờ vào và giờ ra</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Invoice modal */}
       {invoiceModal.session && (
         <div className="fixed inset-0 flex items-end sm:items-center justify-center z-50" style={{ background: "rgba(15,18,24,0.45)" }} onClick={() => setInvoiceModal({ session: null, generated: false })}>
@@ -955,6 +1094,13 @@ export default function App() {
             {toast.text}
           </div>
         </div>
+      )}
+
+      {/* FAB - Quick Check-in */}
+      {!quickCheckinOpen && (
+        <button onClick={() => setQuickCheckinOpen(true)} className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-xl" style={{ background: COLORS.primary, color: "#FFFFFF" }}>
+          <Clock size={24} />
+        </button>
       )}
     </div>
   );
