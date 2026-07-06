@@ -10,6 +10,7 @@ body {
   color: var(--foreground);
   font-family: "Inter", "Arial", sans-serif;
   -webkit-font-smoothing: antialiased;
+  touch-action: manipulation;
 }
 
 @keyframes pulseDot {
