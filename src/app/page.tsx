@@ -167,6 +167,15 @@ export default function App() {
   const [period, setPeriod] = useState("today");
   const [expandedStaffId, setExpandedStaffId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [roomExpanded, setRoomExpanded] = useState<Set<string>>(new Set());
+
+  function toggleRoom(id: string) {
+    setRoomExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   const invoiceRef = useRef<HTMLDivElement>(null);
 
@@ -452,42 +461,70 @@ export default function App() {
             {rooms.map((room) => {
               const sessions = activeSessions.filter((s) => s.roomId === room.id);
               const isActive = sessions.length > 0;
+              const isExpanded = roomExpanded.has(room.id);
               return (
                 <div key={room.id} className="rounded-2xl p-4 flex flex-col gap-3"
                   style={{ background: COLORS.surface, border: `1px solid ${isActive ? COLORS.textPrimary : COLORS.border}`, boxShadow: "0 1px 2px rgba(16,24,40,0.04)" }}>
                   <div className="flex items-center justify-between">
                     <span className="text-base font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{room.name}</span>
-                    <StatusTag active={isActive} />
+                    <div className="flex items-center gap-2">
+                      {isActive && (
+                        <button onClick={() => toggleRoom(room.id)} className="text-xs font-semibold px-2.5 py-1 rounded-lg flex items-center gap-1"
+                          style={{ background: COLORS.bgSubtle, color: COLORS.textMuted, border: `1px solid ${COLORS.border}` }}>
+                          <ChevronDown size={13} style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+                          {isExpanded ? "Thu gọn" : "Chi tiết"}
+                        </button>
+                      )}
+                      <StatusTag active={isActive} />
+                    </div>
                   </div>
 
                   {sessions.length === 0 && <div className="text-sm" style={{ color: COLORS.textFaint }}>Chưa có nhân viên phục vụ</div>}
 
-                  <div className="flex flex-col gap-2">
-                    {sessions.map((session) => {
-                      const person = staffById[session.staffId];
-                      if (!person) return null;
-                      return (
-                        <div key={session.id} className="rounded-xl p-3 flex items-center justify-between gap-2" style={{ background: COLORS.primarySoft }}>
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium truncate">{person.name}</div>
-                            <div className="text-[11px] mt-0.5" style={{ color: COLORS.primary }}>Vào lúc {formatClock(new Date(session.start))}</div>
-                            <div className="flex items-center gap-1.5 mt-0.5" style={{ fontFamily: "'JetBrains Mono', monospace", fontVariantNumeric: "tabular-nums", letterSpacing: "0.02em", color: COLORS.primary }}>
-                              <span className="inline-block w-1.5 h-1.5 rounded-full pulse-dot" style={{ background: COLORS.primary }} />
-                              {formatElapsed(now - session.start)}
+                  {/* Collapsed: only staff names */}
+                  {!isExpanded && sessions.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {sessions.map((session) => {
+                        const person = staffById[session.staffId];
+                        if (!person) return null;
+                        return (
+                          <span key={session.id} className="text-xs font-medium px-2.5 py-1 rounded-lg" style={{ background: COLORS.primarySoft, color: COLORS.primary }}>
+                            {person.name}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Expanded: full details */}
+                  {isExpanded && (
+                    <div className="flex flex-col gap-2">
+                      {sessions.map((session) => {
+                        const person = staffById[session.staffId];
+                        if (!person) return null;
+                        return (
+                          <div key={session.id} className="rounded-xl p-3 flex items-center justify-between gap-2" style={{ background: COLORS.primarySoft }}>
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium truncate">{person.name}</div>
+                              <div className="text-[11px] mt-0.5" style={{ color: COLORS.textMuted }}>Vào lúc {formatClock(new Date(session.start))}</div>
+                              <div className="flex items-center gap-1.5 mt-0.5" style={{ fontFamily: "'JetBrains Mono', monospace", fontVariantNumeric: "tabular-nums", letterSpacing: "0.02em", color: "#16A34A" }}>
+                                <span className="inline-block w-1.5 h-1.5 rounded-full pulse-dot" style={{ background: "#16A34A" }} />
+                                {formatElapsed(now - session.start)}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button onClick={() => endSession(session.id)} className="text-xs font-semibold rounded-lg px-3 py-2" style={{ background: COLORS.primary, color: "#FFFFFF" }}>
+                                Kết thúc
+                              </button>
+                              <button onClick={() => cancelSession(session.id)} title="Huỷ" className="rounded-lg p-2" style={{ color: COLORS.textFaint }}>
+                                <Ban size={14} />
+                              </button>
                             </div>
                           </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button onClick={() => endSession(session.id)} className="text-xs font-semibold rounded-lg px-3 py-2" style={{ background: COLORS.primary, color: "#FFFFFF" }}>
-                              Kết thúc
-                            </button>
-                            <button onClick={() => cancelSession(session.id)} title="Huỷ" className="rounded-lg p-2" style={{ color: COLORS.textFaint }}>
-                              <Ban size={14} />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   <button onClick={() => setModalRoomId(room.id)} className="mt-1 rounded-xl py-3 text-sm font-semibold flex items-center justify-center gap-1.5"
                     style={{ background: COLORS.primarySoft, color: COLORS.primary }}>
@@ -769,15 +806,15 @@ export default function App() {
             </div>
             <div className="flex flex-col gap-2">
               {staff
-                .filter((p) => !activeSessions.filter((s) => s.roomId === modalRoomId).map((s) => s.staffId).includes(p.id))
+                .filter((p) => !activeSessions.some((s) => s.staffId === p.id))
                 .map((p) => (
                 <button key={p.id} onClick={() => startSession(modalRoomId, p.id)} className="flex items-center justify-between rounded-xl px-4 py-3.5 text-left" style={{ background: COLORS.bgSubtle, border: `1px solid ${COLORS.border}` }}>
                   <span className="font-medium text-sm">{p.name}</span>
                   <span className="text-xs" style={{ fontFamily: "'JetBrains Mono', monospace", fontVariantNumeric: "tabular-nums", color: COLORS.textFaint }}>{formatMoney(p.rate)}/giờ</span>
                 </button>
               ))}
-              {staff.filter((p) => !activeSessions.filter((s) => s.roomId === modalRoomId).map((s) => s.staffId).includes(p.id)).length === 0 && (
-                <div className="text-sm text-center py-3" style={{ color: COLORS.textFaint }}>Tất cả nhân viên đã được phân vào phòng này</div>
+              {staff.filter((p) => !activeSessions.some((s) => s.staffId === p.id)).length === 0 && (
+                <div className="text-sm text-center py-3" style={{ color: COLORS.textFaint }}>Tất cả nhân viên đã được phân vào phòng</div>
               )}
             </div>
           </div>
