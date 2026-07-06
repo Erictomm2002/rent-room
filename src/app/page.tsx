@@ -219,7 +219,14 @@ export default function App() {
   const staffById = useMemo(() => Object.fromEntries(staff.map((s) => [s.id, s])), [staff]);
   const activeStaffIdsGlobal = useMemo(() => new Set(activeSessions.map((s) => s.staffId)), [activeSessions]);
   const qcPerson = qcStaffId ? staffById[qcStaffId] : null;
-  const qcHours = qcStart && qcEnd ? Math.max(0, (new Date(qcEnd).getTime() - new Date(qcStart).getTime()) / 3600000) : 0;
+  const qcHours = qcStart && qcEnd ? (() => {
+    const [sh, sm] = qcStart.split(":").map(Number);
+    const [eh, em] = qcEnd.split(":").map(Number);
+    const startMin = sh * 60 + sm;
+    const endMin = eh * 60 + em;
+    const diffMin = endMin >= startMin ? endMin - startMin : 1440 - startMin + endMin;
+    return diffMin / 60;
+  })() : 0;
   const qcAmount = qcPerson ? qcPerson.rate * qcHours : 0;
 
   function resetQuickCheckin() {
@@ -955,42 +962,45 @@ export default function App() {
               {/* Thời gian vào */}
               <div>
                 <label className="text-xs font-medium mb-1 block" style={{ color: COLORS.textMuted }}>Giờ vào</label>
-                <input type="datetime-local" value={qcStart} onChange={(e) => setQcStart(e.target.value)}
+                <input type="time" value={qcStart} onChange={(e) => setQcStart(e.target.value)}
                   className="w-full rounded-xl px-4 py-3 text-sm"
                   style={{ background: COLORS.bgSubtle, border: `1px solid ${COLORS.border}`, color: COLORS.textPrimary, fontFamily: "'JetBrains Mono', monospace" }} />
               </div>
               {/* Thời gian ra */}
               <div>
                 <label className="text-xs font-medium mb-1 block" style={{ color: COLORS.textMuted }}>Giờ ra</label>
-                <input type="datetime-local" value={qcEnd} onChange={(e) => setQcEnd(e.target.value)}
+                <input type="time" value={qcEnd} onChange={(e) => setQcEnd(e.target.value)}
                   className="w-full rounded-xl px-4 py-3 text-sm"
                   style={{ background: COLORS.bgSubtle, border: `1px solid ${COLORS.border}`, color: COLORS.textPrimary, fontFamily: "'JetBrains Mono', monospace" }} />
               </div>
               {/* Preview + Tạo hoá đơn */}
               {qcStaffId && qcRoomId && qcStart && qcEnd && qcPerson ? (
                 <div className="rounded-xl p-4" style={{ background: COLORS.bgSubtle, border: `1px solid ${COLORS.border}` }}>
-                  {qcHours <= 0 ? (
-                    <div className="text-xs mb-3" style={{ color: COLORS.red }}>Giờ ra phải sau giờ vào</div>
-                  ) : (
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <div className="text-xs font-medium" style={{ color: COLORS.textMuted }}>{qcPerson.name} · {rooms.find((r) => r.id === qcRoomId)?.name}</div>
-                        <div className="text-sm font-semibold mt-0.5" style={{ color: COLORS.primary }}>{qcHours.toFixed(2)} giờ · {formatMoney(qcAmount)}</div>
-                      </div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <div className="text-xs font-medium" style={{ color: COLORS.textMuted }}>{qcPerson.name} · {rooms.find((r) => r.id === qcRoomId)?.name}</div>
+                      <div className="text-sm font-semibold mt-0.5" style={{ color: COLORS.primary }}>{qcHours.toFixed(2)} giờ · {formatMoney(qcAmount)}</div>
                     </div>
-                  )}
+                  </div>
                   <button
                     onClick={async () => {
                       const room = rooms.find((r) => r.id === qcRoomId);
-                      if (!qcPerson || !room || qcHours <= 0) return;
+                      if (!qcPerson || !room) return;
+                      const now = new Date();
+                      const todayStr = now.toISOString().slice(0, 10);
+                      const startTs = new Date(`${todayStr}T${qcStart}:00`).getTime();
+                      let endTs = new Date(`${todayStr}T${qcEnd}:00`).getTime();
+                      if (endTs <= startTs) {
+                        endTs += 86400000;
+                      }
                       const newSession: CompletedSession = {
                         id: `quick-${Date.now()}`,
                         roomName: room.name,
                         roomId: qcRoomId,
                         staffId: qcStaffId,
                         staffName: qcPerson.name,
-                        start: new Date(qcStart).getTime(),
-                        end: new Date(qcEnd).getTime(),
+                        start: startTs,
+                        end: endTs,
                         hours: qcHours,
                         amount: qcAmount,
                         invoiceImage: null,
