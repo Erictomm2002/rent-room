@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
-  Plus, X, Users, DoorClosed, TrendingUp, Ban, ChevronDown,
+  Plus, X, Users, DoorClosed, TrendingUp, ChevronDown,
   Pencil, Trash2, Wallet,   Download, LogIn, LogOut, FileText, Menu, Bell, Settings, Clock, Trash,
 } from "lucide-react";
 import { toPng } from "html-to-image";
@@ -162,6 +162,7 @@ export default function App() {
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [formRoomName, setFormRoomName] = useState("");
   const [confirmingDeleteRoomId, setConfirmingDeleteRoomId] = useState<string | null>(null);
+  const [cancelConfirmModal, setCancelConfirmModal] = useState<{ sessionId: string; staffName: string } | null>(null);
 
   // payroll state
   const [period, setPeriod] = useState("today");
@@ -249,6 +250,7 @@ export default function App() {
 
   function cancelSession(sessionId: string) {
     setActiveSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    setCancelConfirmModal(null);
   }
 
   const generateInvoiceImage = useCallback(async () => {
@@ -265,12 +267,29 @@ export default function App() {
   }, [invoiceModal.session?.id, invoiceModal.generated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function downloadInvoice(dataUrl: string, fileName: string) {
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const blob = dataURLToBlob(dataUrl);
+    const url = URL.createObjectURL(blob);
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    if (isIOS) {
+      window.open(url, "_blank");
+    } else {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  function dataURLToBlob(dataUrl: string) {
+    const parts = dataUrl.split(",");
+    const mime = parts[0].match(/:(.*?);/)![1];
+    const bytes = atob(parts[1]);
+    const arr = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    return new Blob([arr], { type: mime });
   }
 
   function viewExistingInvoice(session: CompletedSession) {
@@ -513,12 +532,8 @@ export default function App() {
                               </div>
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
-                              <button onClick={() => endSession(session.id)} className="text-xs font-semibold rounded-lg px-3 py-2" style={{ background: COLORS.primary, color: "#FFFFFF" }}>
-                                Kết thúc
-                              </button>
-                              <button onClick={() => cancelSession(session.id)} title="Huỷ" className="rounded-lg p-2" style={{ color: COLORS.textFaint }}>
-                                <Ban size={14} />
-                              </button>
+                              <button onClick={() => endSession(session.id)} className="text-xs font-semibold rounded-lg px-3 py-2" style={{ background: COLORS.primary, color: "#FFFFFF" }}>Kết thúc</button>
+                              <button onClick={() => setCancelConfirmModal({ sessionId: session.id, staffName: person.name })} className="text-xs font-semibold rounded-lg px-3 py-2" style={{ background: COLORS.bgSubtle, color: COLORS.red }}>Hủy</button>
                             </div>
                           </div>
                         );
@@ -787,6 +802,20 @@ export default function App() {
                   <div className="text-xs" style={{ color: COLORS.textFaint }}>Quản trị viên</div>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm cancel session */}
+      {cancelConfirmModal && (
+        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,24,0.45)" }} onClick={() => setCancelConfirmModal(null)}>
+          <div onClick={(e) => e.stopPropagation()} className="w-[300px] rounded-2xl p-5" style={{ background: COLORS.surface }}>
+            <div className="text-sm font-semibold mb-2" style={{ color: COLORS.textPrimary }}>Xác nhận hủy ca</div>
+            <div className="text-sm mb-5" style={{ color: COLORS.textMuted }}>Bạn có chắc muốn hủy ca của <strong>{cancelConfirmModal.staffName}</strong>?</div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setCancelConfirmModal(null)} className="text-xs font-semibold rounded-lg px-4 py-2" style={{ background: COLORS.bgSubtle, color: COLORS.textMuted }}>Không</button>
+              <button onClick={() => cancelSession(cancelConfirmModal.sessionId)} className="text-xs font-semibold rounded-lg px-4 py-2" style={{ background: COLORS.red, color: "#FFFFFF" }}>Xác nhận hủy</button>
             </div>
           </div>
         </div>
