@@ -129,7 +129,7 @@ interface InvoiceModal {
 
 export default function App() {
   const [now, setNow] = useState(Date.now());
-  const [tab, setTab] = useState("rooms");
+  const [tab, setTab] = useState("dashboard");
   const [rooms, setRooms] = useLocalStorage<Room[]>("rooms", INITIAL_ROOMS);
   const [staff, setStaff] = useLocalStorage<Staff[]>("staff", INITIAL_STAFF);
   const [activeSessions, setActiveSessions] = useLocalStorage<ActiveSession[]>("activeSessions", []);
