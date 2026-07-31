@@ -15,7 +15,7 @@ function toStaff(row: { id: string; name: string; rate: number }): Staff {
 function toCompletedSession(row: {
   id: string; room_name: string; room_id: string; staff_id: string;
   staff_name: string; start_time: string; end_time: string;
-  hours: number; amount: number;
+  hours: number; amount: number; note: string | null;
 }): CompletedSession {
   return {
     id: row.id,
@@ -27,6 +27,7 @@ function toCompletedSession(row: {
     end: new Date(row.end_time).getTime(),
     hours: row.hours,
     amount: row.amount,
+    note: row.note,
   }
 }
 
@@ -121,6 +122,7 @@ export function useData() {
     end: number,
     hours: number,
     amount: number,
+    note?: string | null,
   ): Promise<CompletedSession | null> => {
     const { data, error } = await supabase
       .from('completed_sessions')
@@ -133,6 +135,7 @@ export function useData() {
         end_time: new Date(end).toISOString(),
         hours,
         amount: Math.round(amount),
+        note: note?.trim() ? note.trim() : null,
       })
       .select()
       .single()
@@ -154,6 +157,7 @@ export function useData() {
       end?: number
       hours?: number
       amount?: number
+      note?: string | null
     }
   ) => {
     const updateData: Record<string, unknown> = {}
@@ -165,6 +169,7 @@ export function useData() {
     if (data.end !== undefined) updateData.end_time = new Date(data.end).toISOString()
     if (data.hours !== undefined) updateData.hours = data.hours
     if (data.amount !== undefined) updateData.amount = Math.round(data.amount)
+    if (data.note !== undefined) updateData.note = data.note?.trim() ? data.note.trim() : null
 
     const { error } = await supabase
       .from('completed_sessions')

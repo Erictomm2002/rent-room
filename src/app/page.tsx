@@ -12,8 +12,6 @@ import {
   Pencil,
   Trash2,
   Wallet,
-  LogIn,
-  LogOut,
   Clock,
   History,
   LayoutDashboard,
@@ -87,7 +85,10 @@ function thisMonthStart() {
   return startOfDay(new Date(now.getFullYear(), now.getMonth(), 1));
 }
 function toDateInputValue(d: Date) {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 function parseDate(str: string) {
   const [y, m, d] = str.split("-").map(Number);
@@ -107,6 +108,14 @@ const PERIODS = [
   { id: "week", label: "Tuần này", cutoff: () => thisWeekStart() },
   { id: "30d", label: "30 ngày trước", cutoff: () => Date.now() - 30 * DAY_MS },
   { id: "month", label: "Tháng này", cutoff: () => thisMonthStart() },
+];
+
+const QUICK_DURATIONS = [
+  { label: "1h00", hours: 1, mins: 0 },
+  { label: "1h30", hours: 1, mins: 30 },
+  { label: "2h00", hours: 2, mins: 0 },
+  { label: "3h00", hours: 3, mins: 0 },
+  { label: "4h00", hours: 4, mins: 0 },
 ];
 
 interface PayrollGroup {
@@ -173,16 +182,18 @@ export default function App() {
   const [qcDate, setQcDate] = useState(toDateInputValue(new Date()));
   const [qcStaffId, setQcStaffId] = useState("");
   const [qcRoomId, setQcRoomId] = useState("");
-  const [qcStart, setQcStart] = useState("");
-  const [qcEnd, setQcEnd] = useState("");
+  const [qcHoursIn, setQcHoursIn] = useState("");
+  const [qcMinsIn, setQcMinsIn] = useState("");
+  const [qcNote, setQcNote] = useState("");
 
   // edit session state
   const [editSession, setEditSession] = useState<CompletedSession | null>(null);
   const [editDate, setEditDate] = useState("");
   const [editStaffId, setEditStaffId] = useState("");
   const [editRoomId, setEditRoomId] = useState("");
-  const [editStart, setEditStart] = useState("");
-  const [editEnd, setEditEnd] = useState("");
+  const [editHoursIn, setEditHoursIn] = useState("");
+  const [editMinsIn, setEditMinsIn] = useState("");
+  const [editNote, setEditNote] = useState("");
 
   // delete confirmation
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -209,26 +220,18 @@ export default function App() {
   // ---- Quick check-in computed ----
   const qcPerson = qcStaffId ? staffById[qcStaffId] : null;
   const qcRoom = qcRoomId ? rooms.find((r) => r.id === qcRoomId) : null;
-  const qcHours =
-    qcStart && qcEnd
-      ? (() => {
-          const [sh, sm] = qcStart.split(":").map(Number);
-          const [eh, em] = qcEnd.split(":").map(Number);
-          const startMin = sh * 60 + sm;
-          const endMin = eh * 60 + em;
-          const diffMin =
-            endMin >= startMin ? endMin - startMin : 1440 - startMin + endMin;
-          return diffMin / 60;
-        })()
-      : 0;
+  const qcDurationMins =
+    (parseInt(qcHoursIn, 10) || 0) * 60 + (parseInt(qcMinsIn, 10) || 0);
+  const qcHours = qcDurationMins / 60;
   const qcAmount = qcPerson ? qcPerson.rate * qcHours : 0;
 
   function resetQuickCheckin() {
     setQcDate(toDateInputValue(new Date()));
     setQcStaffId("");
     setQcRoomId("");
-    setQcStart("");
-    setQcEnd("");
+    setQcHoursIn("");
+    setQcMinsIn("");
+    setQcNote("");
     setQuickCheckinOpen(false);
   }
 
@@ -237,28 +240,28 @@ export default function App() {
     setEditDate("");
     setEditStaffId("");
     setEditRoomId("");
-    setEditStart("");
-    setEditEnd("");
+    setEditHoursIn("");
+    setEditMinsIn("");
+    setEditNote("");
   }
 
   function openEdit(session: CompletedSession) {
     const d = new Date(session.start);
+    const totalMins = Math.round(session.hours * 60);
     setEditSession(session);
     setEditDate(toDateInputValue(d));
     setEditStaffId(session.staffId);
     setEditRoomId(session.roomId);
-    setEditStart(formatClock(d));
-    setEditEnd(formatClock(new Date(session.end)));
+    setEditHoursIn(String(Math.floor(totalMins / 60)));
+    setEditMinsIn(String(totalMins % 60));
+    setEditNote(session.note ?? "");
   }
 
   async function handleQuickCheckin() {
-    if (!qcPerson || !qcRoom || !qcStart || !qcEnd) return;
+    if (!qcPerson || !qcRoom || qcDurationMins <= 0) return;
     const dateStr = qcDate;
-    const startTs = new Date(`${dateStr}T${qcStart}:00`).getTime();
-    let endTs = new Date(`${dateStr}T${qcEnd}:00`).getTime();
-    if (endTs <= startTs) {
-      endTs += DAY_MS;
-    }
+    const startTs = new Date(`${dateStr}T00:00:00`).getTime();
+    const endTs = startTs + qcDurationMins * 60000;
     const session = await quickCheckinMut(
       qcRoomId,
       qcStaffId,
@@ -268,6 +271,7 @@ export default function App() {
       endTs,
       qcHours,
       qcAmount,
+      qcNote,
     );
     if (session) {
       resetQuickCheckin();
@@ -279,16 +283,17 @@ export default function App() {
   }
 
   async function handleEdit() {
-    if (!editSession || !editStaffId || !editRoomId || !editStart || !editEnd)
-      return;
+    if (!editSession || !editStaffId || !editRoomId) return;
     const person = staffById[editStaffId];
     const room = rooms.find((r) => r.id === editRoomId);
     if (!person || !room) return;
     const dateStr = editDate;
-    const startTs = new Date(`${dateStr}T${editStart}:00`).getTime();
-    let endTs = new Date(`${dateStr}T${editEnd}:00`).getTime();
-    if (endTs <= startTs) endTs += DAY_MS;
-    const hours = (endTs - startTs) / 3600000;
+    const durationMins =
+      (parseInt(editHoursIn, 10) || 0) * 60 + (parseInt(editMinsIn, 10) || 0);
+    if (durationMins <= 0) return;
+    const startTs = new Date(`${dateStr}T00:00:00`).getTime();
+    const endTs = startTs + durationMins * 60000;
+    const hours = durationMins / 60;
     const amount = hours * person.rate;
     const ok = await updateSessionMut(editSession.id, {
       roomId: editRoomId,
@@ -299,6 +304,7 @@ export default function App() {
       end: endTs,
       hours,
       amount,
+      note: editNote,
     });
     if (ok) {
       resetEdit();
@@ -951,20 +957,23 @@ export default function App() {
                               {formatMoney(s.amount)}
                             </div>
                           </div>
+                          {s.note && (
+                            <div
+                              className="text-[11px] mb-1.5 break-words"
+                              style={{ color: COLORS.textMuted }}
+                            >
+                              {s.note}
+                            </div>
+                          )}
                           <div className="flex items-center justify-between">
                             <div
                               className="flex items-center gap-3 text-[11px]"
                               style={{ color: COLORS.textMuted }}
                             >
                               <span className="flex items-center gap-1">
-                                <LogIn size={11} color={COLORS.primary} />{" "}
-                                {formatClock(new Date(s.start))}
+                                <Clock size={11} color={COLORS.primary} />{" "}
+                                {formatDuration(s.hours)}
                               </span>
-                              <span className="flex items-center gap-1">
-                                <LogOut size={11} color={COLORS.primary} />{" "}
-                                {formatClock(new Date(s.end))}
-                              </span>
-                              <span>{formatDuration(s.hours)}</span>
                             </div>
                             <div className="flex items-center gap-1 shrink-0 ml-2">
                               <button
@@ -1237,12 +1246,12 @@ export default function App() {
                 <X size={20} />
               </button>
             </div>
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-5">
               {/* Date */}
               <div>
                 <label
-                  className="text-xs font-medium mb-1 block"
-                  style={{ color: COLORS.textMuted }}
+                  className="text-sm font-bold mb-2 block"
+                  style={{ color: COLORS.textPrimary }}
                 >
                   Ngày
                 </label>
@@ -1261,8 +1270,8 @@ export default function App() {
               {/* Staff */}
               <div>
                 <label
-                  className="text-xs font-medium mb-1.5 block"
-                  style={{ color: COLORS.textMuted }}
+                  className="text-sm font-bold mb-2 block"
+                  style={{ color: COLORS.textPrimary }}
                 >
                   Nhân viên
                 </label>
@@ -1288,8 +1297,8 @@ export default function App() {
               {/* Room */}
               <div>
                 <label
-                  className="text-xs font-medium mb-1.5 block"
-                  style={{ color: COLORS.textMuted }}
+                  className="text-sm font-bold mb-2 block"
+                  style={{ color: COLORS.textPrimary }}
                 >
                   Địa điểm
                 </label>
@@ -1311,51 +1320,127 @@ export default function App() {
                   ))}
                 </div>
               </div>
-              {/* Time in */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label
-                    className="text-xs font-medium mb-1 block"
-                    style={{ color: COLORS.textMuted }}
-                  >
-                    Giờ vào
-                  </label>
-                  <input
-                    type="time"
-                    value={qcStart}
-                    onChange={(e) => setQcStart(e.target.value)}
-                    className="w-full rounded-xl px-4 py-3 text-sm"
-                    style={{
-                      background: COLORS.bgSubtle,
-                      border: `1px solid ${COLORS.border}`,
-                      color: COLORS.textPrimary,
-                      fontFamily: "'JetBrains Mono', monospace",
-                    }}
-                  />
+              {/* Duration */}
+              <div>
+                <label
+                  className="text-sm font-bold mb-2 block"
+                  style={{ color: COLORS.textPrimary }}
+                >
+                  Thời gian làm việc
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label
+                      className="text-xs mb-1 block"
+                      style={{ color: COLORS.textFaint }}
+                    >
+                      Giờ
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={23}
+                      inputMode="numeric"
+                      value={qcHoursIn}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/[^0-9]/g, "");
+                        setQcHoursIn(v);
+                      }}
+                      placeholder="1"
+                      className="w-full rounded-xl px-4 py-3 text-sm"
+                      style={{
+                        background: COLORS.bgSubtle,
+                        border: `1px solid ${COLORS.border}`,
+                        color: COLORS.textPrimary,
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      className="text-xs mb-1 block"
+                      style={{ color: COLORS.textFaint }}
+                    >
+                      Phút
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={59}
+                      inputMode="numeric"
+                      value={qcMinsIn}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/[^0-9]/g, "");
+                        setQcMinsIn(v);
+                      }}
+                      placeholder="30"
+                      className="w-full rounded-xl px-4 py-3 text-sm"
+                      style={{
+                        background: COLORS.bgSubtle,
+                        border: `1px solid ${COLORS.border}`,
+                        color: COLORS.textPrimary,
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label
-                    className="text-xs font-medium mb-1 block"
-                    style={{ color: COLORS.textMuted }}
-                  >
-                    Giờ ra
-                  </label>
-                  <input
-                    type="time"
-                    value={qcEnd}
-                    onChange={(e) => setQcEnd(e.target.value)}
-                    className="w-full rounded-xl px-4 py-3 text-sm"
-                    style={{
-                      background: COLORS.bgSubtle,
-                      border: `1px solid ${COLORS.border}`,
-                      color: COLORS.textPrimary,
-                      fontFamily: "'JetBrains Mono', monospace",
-                    }}
-                  />
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {QUICK_DURATIONS.map((d) => {
+                    const isActive =
+                      (parseInt(qcHoursIn, 10) || 0) === d.hours &&
+                      (parseInt(qcMinsIn, 10) || 0) === d.mins;
+                    return (
+                      <button
+                        key={d.label}
+                        onClick={() => {
+                          setQcHoursIn(String(d.hours));
+                          setQcMinsIn(String(d.mins));
+                        }}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-full"
+                        style={{
+                          background: isActive
+                            ? COLORS.primary
+                            : COLORS.bgSubtle,
+                          color: isActive ? "#FFFFFF" : COLORS.textMuted,
+                          border: `1px solid ${isActive ? COLORS.primary : COLORS.border}`,
+                        }}
+                      >
+                        {d.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {/* Note */}
+              <div>
+                <label
+                  className="text-sm font-bold mb-2 block"
+                  style={{ color: COLORS.textPrimary }}
+                >
+                  Ghi chú
+                </label>
+                <textarea
+                  value={qcNote}
+                  onChange={(e) => setQcNote(e.target.value)}
+                  maxLength={100}
+                  rows={2}
+                  placeholder="Ghi chú những điều cần lưu ý (tối đa 100 ký tự)"
+                  className="w-full rounded-xl px-4 py-3 text-sm resize-none"
+                  style={{
+                    background: COLORS.bgSubtle,
+                    border: `1px solid ${COLORS.border}`,
+                    color: COLORS.textPrimary,
+                  }}
+                />
+                <div
+                  className="text-right text-xs mt-1"
+                  style={{ color: COLORS.textFaint }}
+                >
+                  {qcNote.length}/100
                 </div>
               </div>
               {/* Preview + Submit */}
-              {qcPerson && qcRoom && qcStart && qcEnd ? (
+              {qcPerson && qcRoom && qcDurationMins > 0 ? (
                 <div
                   className="rounded-xl p-4"
                   style={{
@@ -1395,7 +1480,7 @@ export default function App() {
                   className="text-xs text-center py-3"
                   style={{ color: COLORS.textFaint }}
                 >
-                  Chọn nhân viên, địa điểm, giờ vào và giờ ra
+                  Chọn nhân viên, địa điểm và thời gian làm việc
                 </div>
               )}
             </div>
@@ -1515,46 +1600,120 @@ export default function App() {
                   ))}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label
-                    className="text-xs font-medium mb-1 block"
-                    style={{ color: COLORS.textMuted }}
-                  >
-                    Giờ vào
-                  </label>
-                  <input
-                    type="time"
-                    value={editStart}
-                    onChange={(e) => setEditStart(e.target.value)}
-                    className="w-full rounded-xl px-4 py-3 text-sm"
-                    style={{
-                      background: COLORS.bgSubtle,
-                      border: `1px solid ${COLORS.border}`,
-                      color: COLORS.textPrimary,
-                      fontFamily: "'JetBrains Mono', monospace",
-                    }}
-                  />
+              <div>
+                <label
+                  className="text-xs font-medium mb-1.5 block"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Thời gian làm việc
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label
+                      className="text-xs mb-1 block"
+                      style={{ color: COLORS.textFaint }}
+                    >
+                      Giờ
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={23}
+                      inputMode="numeric"
+                      value={editHoursIn}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/[^0-9]/g, "");
+                        setEditHoursIn(v);
+                      }}
+                      className="w-full rounded-xl px-4 py-3 text-sm"
+                      style={{
+                        background: COLORS.bgSubtle,
+                        border: `1px solid ${COLORS.border}`,
+                        color: COLORS.textPrimary,
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      className="text-xs mb-1 block"
+                      style={{ color: COLORS.textFaint }}
+                    >
+                      Phút
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={59}
+                      inputMode="numeric"
+                      value={editMinsIn}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/[^0-9]/g, "");
+                        setEditMinsIn(v);
+                      }}
+                      className="w-full rounded-xl px-4 py-3 text-sm"
+                      style={{
+                        background: COLORS.bgSubtle,
+                        border: `1px solid ${COLORS.border}`,
+                        color: COLORS.textPrimary,
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label
-                    className="text-xs font-medium mb-1 block"
-                    style={{ color: COLORS.textMuted }}
-                  >
-                    Giờ ra
-                  </label>
-                  <input
-                    type="time"
-                    value={editEnd}
-                    onChange={(e) => setEditEnd(e.target.value)}
-                    className="w-full rounded-xl px-4 py-3 text-sm"
-                    style={{
-                      background: COLORS.bgSubtle,
-                      border: `1px solid ${COLORS.border}`,
-                      color: COLORS.textPrimary,
-                      fontFamily: "'JetBrains Mono', monospace",
-                    }}
-                  />
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {QUICK_DURATIONS.map((d) => {
+                    const isActive =
+                      (parseInt(editHoursIn, 10) || 0) === d.hours &&
+                      (parseInt(editMinsIn, 10) || 0) === d.mins;
+                    return (
+                      <button
+                        key={d.label}
+                        onClick={() => {
+                          setEditHoursIn(String(d.hours));
+                          setEditMinsIn(String(d.mins));
+                        }}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-full"
+                        style={{
+                          background: isActive
+                            ? COLORS.primary
+                            : COLORS.bgSubtle,
+                          color: isActive ? "#FFFFFF" : COLORS.textMuted,
+                          border: `1px solid ${isActive ? COLORS.primary : COLORS.border}`,
+                        }}
+                      >
+                        {d.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {/* Note */}
+              <div>
+                <label
+                  className="text-sm font-bold mb-2 block"
+                  style={{ color: COLORS.textPrimary }}
+                >
+                  Ghi chú
+                </label>
+                <textarea
+                  value={editNote}
+                  onChange={(e) => setEditNote(e.target.value)}
+                  maxLength={100}
+                  rows={2}
+                  placeholder="Ghi chú những điều cần lưu ý (tối đa 100 ký tự)"
+                  className="w-full rounded-xl px-4 py-3 text-sm resize-none"
+                  style={{
+                    background: COLORS.bgSubtle,
+                    border: `1px solid ${COLORS.border}`,
+                    color: COLORS.textPrimary,
+                  }}
+                />
+                <div
+                  className="text-right text-xs mt-1"
+                  style={{ color: COLORS.textFaint }}
+                >
+                  {editNote.length}/100
                 </div>
               </div>
               <button
@@ -1966,31 +2125,17 @@ function CheckinCard({
     >
       <div className="flex items-start justify-between">
         <div className="min-w-0 flex-1">
-          {/* Time range */}
-          <div className="flex items-center gap-2 mb-2">
-            <div
-              className="flex items-center gap-1 text-sm font-semibold"
-              style={{
-                fontFamily: "'JetBrains Mono', monospace",
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              <LogIn size={14} color={COLORS.green} />
-              {formatClock(new Date(session.start))}
-            </div>
-            <div className="text-xs" style={{ color: COLORS.textFaint }}>
-              →
-            </div>
-            <div
-              className="flex items-center gap-1 text-sm font-semibold"
-              style={{
-                fontFamily: "'JetBrains Mono', monospace",
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              <LogOut size={14} color={COLORS.red} />
-              {formatClock(new Date(session.end))}
-            </div>
+          {/* Date */}
+          <div
+            className="flex items-center gap-1.5 text-sm font-semibold mb-2"
+            style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontVariantNumeric: "tabular-nums",
+              color: COLORS.textPrimary,
+            }}
+          >
+            <Calendar size={14} color={COLORS.textMuted} />
+            {formatDate(new Date(session.start))}
           </div>
           {/* Staff + Room */}
           <div className="text-sm" style={{ color: COLORS.textMuted }}>
@@ -2021,6 +2166,18 @@ function CheckinCard({
               {formatMoney(session.amount)}
             </span>
           </div>
+          {session.note && (
+            <div
+              className="text-xs mt-2 flex items-start gap-1.5"
+              style={{ color: COLORS.textMuted }}
+            >
+              <span
+                className="inline-block w-1.5 h-1.5 rounded-full mt-1 shrink-0"
+                style={{ background: COLORS.blue }}
+              />
+              <span className="break-words">{session.note}</span>
+            </div>
+          )}
         </div>
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0 ml-3">
@@ -2062,7 +2219,6 @@ function InvoiceView({
   onClose: () => void;
 }) {
   const startDate = new Date(session.start);
-  const endDate = new Date(session.end);
   const dayOfWeek = startDate.toLocaleDateString("vi-VN", { weekday: "long" });
 
   return (
@@ -2200,6 +2356,22 @@ function InvoiceView({
                   {session.roomName}
                 </span>
               </div>
+              {session.note && (
+                <div className="flex items-center justify-between gap-3">
+                  <span
+                    className="text-[11px] uppercase tracking-wider font-semibold shrink-0"
+                    style={{ color: COLORS.textMuted }}
+                  >
+                    Ghi chú
+                  </span>
+                  <span
+                    className="text-sm font-medium text-right break-words"
+                    style={{ color: COLORS.textPrimary }}
+                  >
+                    {session.note}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* ---- Solid divider ---- */}
@@ -2215,44 +2387,7 @@ function InvoiceView({
                   className="text-[11px] uppercase tracking-wider font-semibold"
                   style={{ color: COLORS.textMuted }}
                 >
-                  Giờ vào
-                </span>
-                <span
-                  className="text-sm font-semibold font-mono"
-                  style={{
-                    fontVariantNumeric: "tabular-nums",
-                    color: COLORS.textPrimary,
-                  }}
-                >
-                  {formatClock(startDate)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span
-                  className="text-[11px] uppercase tracking-wider font-semibold"
-                  style={{ color: COLORS.textMuted }}
-                >
-                  Giờ ra
-                </span>
-                <span
-                  className="text-sm font-semibold font-mono"
-                  style={{
-                    fontVariantNumeric: "tabular-nums",
-                    color: COLORS.textPrimary,
-                  }}
-                >
-                  {formatClock(endDate)}
-                </span>
-              </div>
-              <div
-                className="flex items-center justify-between pt-1"
-                style={{ borderTop: `1px dashed ${COLORS.border}` }}
-              >
-                <span
-                  className="text-[11px] uppercase tracking-wider font-semibold"
-                  style={{ color: COLORS.textMuted }}
-                >
-                  Tổng giờ
+                  Thời gian làm việc
                 </span>
                 <span
                   className="text-sm font-bold font-mono"

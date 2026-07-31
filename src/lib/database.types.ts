@@ -19,4 +19,5 @@ export interface CompletedSession {
   end: number;
   hours: number;
   amount: number;
+  note: string | null;
 }
