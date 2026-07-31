@@ -1,12 +1,29 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { useLocalStorage } from "@/hooks/use-local-storage";
+import { useState, useEffect, useMemo } from "react";
+import { useData } from "@/hooks/use-data";
+import type { Room, Staff, CompletedSession } from "@/lib/database.types";
 import {
-  Plus, X, Users, DoorClosed, TrendingUp, ChevronDown,
-  Pencil, Trash2, Wallet,   Download, LogIn, LogOut, FileText, Menu, Bell, Settings, Clock, Trash,
+  Plus,
+  X,
+  Users,
+  DoorClosed,
+  TrendingUp,
+  Pencil,
+  Trash2,
+  Wallet,
+  LogIn,
+  LogOut,
+  Clock,
+  History,
+  LayoutDashboard,
+  ChevronLeft,
+  ChevronRight,
+  Calendar,
+  Timer,
+  Receipt,
+  Filter,
 } from "lucide-react";
-import { toPng } from "html-to-image";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -21,92 +38,76 @@ const COLORS = {
   blue: "#2563EB",
   red: "#C13B2F",
   redSoft: "#FBEAE8",
+  green: "#16A34A",
+  greenSoft: "#DCFCE7",
 };
-
-const INITIAL_ROOMS = [
-  { id: "r1", name: "Phòng 1" },
-  { id: "r2", name: "Phòng 2" },
-  { id: "r3", name: "Phòng 3" },
-  { id: "r4", name: "Phòng VIP 1" },
-  { id: "r5", name: "Phòng VIP 2" },
-];
-
-const INITIAL_STAFF = [
-  { id: "s1", name: "Nguyễn Thị Lan", rate: 60000 },
-  { id: "s2", name: "Trần Văn Minh", rate: 55000 },
-  { id: "s3", name: "Phạm Thị Hoa", rate: 65000 },
-  { id: "s4", name: "Lê Văn Hùng", rate: 55000 },
-];
 
 const DAY_MS = 86400000;
 
-function formatElapsed(ms: number) {
-  const totalSec = Math.max(0, Math.floor(ms / 1000));
-  const h = String(Math.floor(totalSec / 3600)).padStart(2, "0");
-  const m = String(Math.floor((totalSec % 3600) / 60)).padStart(2, "0");
-  const s = String(totalSec % 60).padStart(2, "0");
-  return `${h}:${m}:${s}`;
-}
 function formatMoney(n: number) {
   return Math.round(n).toLocaleString("vi-VN") + "đ";
 }
 function formatClock(d: Date) {
   return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
 }
+function formatDuration(hours: number) {
+  const totalMinutes = Math.round(hours * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
 function formatDate(d: Date) {
+  return d.toLocaleDateString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+function formatDateShort(d: Date) {
   return d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
 }
-function startOfToday() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
+function startOfDay(d: Date) {
+  const date = new Date(d);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+function todayStart() {
+  return startOfDay(new Date());
+}
+function thisWeekStart() {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = day === 0 ? 6 : day - 1;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - diff);
+  return startOfDay(monday);
+}
+function thisMonthStart() {
+  const now = new Date();
+  return startOfDay(new Date(now.getFullYear(), now.getMonth(), 1));
+}
+function toDateInputValue(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+function parseDate(str: string) {
+  const [y, m, d] = str.split("-").map(Number);
+  return new Date(y, m - 1, d);
 }
 
-const TABS = [
-  { id: "dashboard", label: "Dashboard", icon: TrendingUp },
-  { id: "rooms", label: "Phòng", icon: DoorClosed },
-  { id: "staff", label: "Nhân viên", icon: Users },
-  { id: "payroll", label: "Lương", icon: Wallet },
-  { id: "settings", label: "Cài đặt", icon: Settings },
+const BOTTOM_TABS = [
+  { id: "dashboard", icon: LayoutDashboard },
+  { id: "rooms", icon: DoorClosed },
+  { id: "staff", icon: Users },
+  { id: "report", icon: TrendingUp },
 ];
 
 const PERIODS = [
-  { id: "today", label: "Hôm nay", cutoff: () => startOfToday() },
-  { id: "week", label: "7 ngày qua", cutoff: () => Date.now() - 7 * DAY_MS },
-  { id: "month", label: "30 ngày qua", cutoff: () => Date.now() - 30 * DAY_MS },
-  { id: "all", label: "Tất cả", cutoff: () => 0 },
+  { id: "today", label: "Hôm nay", cutoff: () => todayStart() },
+  { id: "7d", label: "7 ngày trước", cutoff: () => Date.now() - 7 * DAY_MS },
+  { id: "week", label: "Tuần này", cutoff: () => thisWeekStart() },
+  { id: "30d", label: "30 ngày trước", cutoff: () => Date.now() - 30 * DAY_MS },
+  { id: "month", label: "Tháng này", cutoff: () => thisMonthStart() },
 ];
-
-interface Staff {
-  id: string;
-  name: string;
-  rate: number;
-}
-
-interface Room {
-  id: string;
-  name: string;
-}
-
-interface ActiveSession {
-  id: string;
-  roomId: string;
-  staffId: string;
-  start: number;
-}
-
-interface CompletedSession {
-  id: string;
-  roomName: string;
-  roomId: string;
-  staffId: string;
-  staffName: string;
-  start: number;
-  end: number;
-  hours: number;
-  amount: number;
-  invoiceImage: string | null;
-}
 
 interface PayrollGroup {
   staffId: string;
@@ -118,118 +119,112 @@ interface PayrollGroup {
 }
 
 interface Toast {
-  type: "start" | "end";
+  type: "success" | "error";
   text: string;
 }
 
-interface InvoiceModal {
-  session: CompletedSession | null;
-  generated: boolean;
-}
-
 export default function App() {
-  const [now, setNow] = useState(Date.now());
-  const [tab, setTab] = useState("dashboard");
-  const [rooms, setRooms] = useLocalStorage<Room[]>("rooms", INITIAL_ROOMS);
-  const [staff, setStaff] = useLocalStorage<Staff[]>("staff", INITIAL_STAFF);
-  const [activeSessions, setActiveSessions] = useLocalStorage<ActiveSession[]>("activeSessions", []);
-  const [completedSessions, setCompletedSessions] = useLocalStorage<CompletedSession[]>("completedSessions", []);
-  const [modalRoomId, setModalRoomId] = useState<string | null>(null);
-  const [toast, setToast] = useState<Toast | null>(null);
-  const [invoiceModal, setInvoiceModal] = useState<InvoiceModal>({ session: null, generated: false });
-  const [viewerInvoice, setViewerInvoice] = useState<string | null>(null);
+  const {
+    rooms,
+    staff,
+    completedSessions,
+    loading,
+    addRoom: addRoomMut,
+    updateRoom: updateRoomMut,
+    deleteRoom: deleteRoomMut,
+    addStaff: addStaffMut,
+    updateStaff: updateStaffMut,
+    deleteStaff: deleteStaffMut,
+    quickCheckin: quickCheckinMut,
+    updateSession: updateSessionMut,
+    deleteSession: deleteSessionMut,
+  } = useData();
 
-  interface AppSettings {
-    autoReset: boolean;
-    resetTime: string;
-    lastResetDate: string;
-  }
-  const [settings, setSettings] = useLocalStorage<AppSettings>("settings", {
-    autoReset: false,
-    resetTime: "00:00",
-    lastResetDate: "",
-  });
+  const [tab, setTab] = useState("dashboard");
+  const [toast, setToast] = useState<Toast | null>(null);
 
   // staff form state
   const [staffFormOpen, setStaffFormOpen] = useState(false);
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
   const [formName, setFormName] = useState("");
   const [formRate, setFormRate] = useState("");
-  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(
+    null,
+  );
 
   // room form state
   const [roomFormOpen, setRoomFormOpen] = useState(false);
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [formRoomName, setFormRoomName] = useState("");
-  const [confirmingDeleteRoomId, setConfirmingDeleteRoomId] = useState<string | null>(null);
-  const [cancelConfirmModal, setCancelConfirmModal] = useState<{ sessionId: string; staffName: string } | null>(null);
+  const [confirmingDeleteRoomId, setConfirmingDeleteRoomId] = useState<
+    string | null
+  >(null);
 
   // payroll state
   const [period, setPeriod] = useState("today");
-  const [expandedStaffId, setExpandedStaffId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [roomExpanded, setRoomExpanded] = useState<Set<string>>(new Set());
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterStaffId, setFilterStaffId] = useState("all");
+  const [tempPeriod, setTempPeriod] = useState("today");
+  const [tempFilterStaffId, setTempFilterStaffId] = useState("all");
+  const [tempStaffSearch, setTempStaffSearch] = useState("");
 
   // quick check-in state
   const [quickCheckinOpen, setQuickCheckinOpen] = useState(false);
+  const [qcDate, setQcDate] = useState(toDateInputValue(new Date()));
   const [qcStaffId, setQcStaffId] = useState("");
   const [qcRoomId, setQcRoomId] = useState("");
   const [qcStart, setQcStart] = useState("");
   const [qcEnd, setQcEnd] = useState("");
 
-  function toggleRoom(id: string) {
-    setRoomExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }
+  // edit session state
+  const [editSession, setEditSession] = useState<CompletedSession | null>(null);
+  const [editDate, setEditDate] = useState("");
+  const [editStaffId, setEditStaffId] = useState("");
+  const [editRoomId, setEditRoomId] = useState("");
+  const [editStart, setEditStart] = useState("");
+  const [editEnd, setEditEnd] = useState("");
 
-  const invoiceRef = useRef<HTMLDivElement>(null);
+  // delete confirmation
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  // auto-reset check on mount + every 60s
-  useEffect(() => {
-    if (!settings.autoReset) return;
-    function doReset() {
-      const now = new Date();
-      const today = now.toISOString().slice(0, 10);
-      if (settings.lastResetDate === today) return;
-      const [h, m] = settings.resetTime.split(":").map(Number);
-      const resetToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
-      if (now.getTime() >= resetToday.getTime()) {
-        setActiveSessions([]);
-        setCompletedSessions([]);
-        setSettings((prev) => ({ ...prev, lastResetDate: today }));
-      }
-    }
-    doReset();
-    const t = setInterval(doReset, 60000);
-    return () => clearInterval(t);
-  }, [settings.autoReset, settings.resetTime, settings.lastResetDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  // invoice
+  const [invoiceSession, setInvoiceSession] = useState<CompletedSession | null>(
+    null,
+  );
+
+  // history tab date
+  const [historyDate, setHistoryDate] = useState(toDateInputValue(new Date()));
+
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 3200);
     return () => clearTimeout(t);
   }, [toast]);
 
-  const staffById = useMemo(() => Object.fromEntries(staff.map((s) => [s.id, s])), [staff]);
-  const activeStaffIdsGlobal = useMemo(() => new Set(activeSessions.map((s) => s.staffId)), [activeSessions]);
+  const staffById = useMemo(
+    () => Object.fromEntries(staff.map((s) => [s.id, s])),
+    [staff],
+  );
+
+  // ---- Quick check-in computed ----
   const qcPerson = qcStaffId ? staffById[qcStaffId] : null;
-  const qcHours = qcStart && qcEnd ? (() => {
-    const [sh, sm] = qcStart.split(":").map(Number);
-    const [eh, em] = qcEnd.split(":").map(Number);
-    const startMin = sh * 60 + sm;
-    const endMin = eh * 60 + em;
-    const diffMin = endMin >= startMin ? endMin - startMin : 1440 - startMin + endMin;
-    return diffMin / 60;
-  })() : 0;
+  const qcRoom = qcRoomId ? rooms.find((r) => r.id === qcRoomId) : null;
+  const qcHours =
+    qcStart && qcEnd
+      ? (() => {
+          const [sh, sm] = qcStart.split(":").map(Number);
+          const [eh, em] = qcEnd.split(":").map(Number);
+          const startMin = sh * 60 + sm;
+          const endMin = eh * 60 + em;
+          const diffMin =
+            endMin >= startMin ? endMin - startMin : 1440 - startMin + endMin;
+          return diffMin / 60;
+        })()
+      : 0;
   const qcAmount = qcPerson ? qcPerson.rate * qcHours : 0;
 
   function resetQuickCheckin() {
+    setQcDate(toDateInputValue(new Date()));
     setQcStaffId("");
     setQcRoomId("");
     setQcStart("");
@@ -237,169 +232,219 @@ export default function App() {
     setQuickCheckinOpen(false);
   }
 
-  function startSession(roomId: string, staffId: string) {
-    const room = rooms.find((r) => r.id === roomId);
-    const person = staffById[staffId];
-    setActiveSessions((prev) => [...prev, { id: `${roomId}-${staffId}-${Date.now()}`, roomId, staffId, start: Date.now() }]);
-    setModalRoomId(null);
-    setToast({ type: "start", text: `${person.name} bắt đầu ca tại ${room!.name}` });
+  function resetEdit() {
+    setEditSession(null);
+    setEditDate("");
+    setEditStaffId("");
+    setEditRoomId("");
+    setEditStart("");
+    setEditEnd("");
   }
 
-  function endSession(sessionId: string) {
-    setActiveSessions((prev) => {
-      const session = prev.find((s) => s.id === sessionId);
-      if (!session) return prev;
-      const end = Date.now();
-      const hours = (end - session.start) / 3600000;
-      const person = staffById[session.staffId];
-      const amount = hours * person.rate;
-      const room = rooms.find((r) => r.id === session.roomId);
-      const completed: CompletedSession = {
-        id: session.id,
-        roomName: room!.name,
-        roomId: session.roomId,
-        staffId: session.staffId,
-        staffName: person.name,
-        start: session.start,
-        end,
-        hours,
-        amount,
-        invoiceImage: null,
-      };
-      setCompletedSessions((c) => [completed, ...c]);
-      setInvoiceModal({ session: completed, generated: false });
-      setToast({ type: "end", text: `${person.name} kết thúc ca — ${formatMoney(amount)} (${hours.toFixed(2)}h)` });
-      return prev.filter((s) => s.id !== sessionId);
-    });
+  function openEdit(session: CompletedSession) {
+    const d = new Date(session.start);
+    setEditSession(session);
+    setEditDate(toDateInputValue(d));
+    setEditStaffId(session.staffId);
+    setEditRoomId(session.roomId);
+    setEditStart(formatClock(d));
+    setEditEnd(formatClock(new Date(session.end)));
   }
 
-  function cancelSession(sessionId: string) {
-    setActiveSessions((prev) => prev.filter((s) => s.id !== sessionId));
-    setCancelConfirmModal(null);
-  }
-
-  const generateInvoiceImage = useCallback(async () => {
-    if (!invoiceRef.current || invoiceModal.generated) return;
-    try {
-      const dataUrl = await toPng(invoiceRef.current, { quality: 1, pixelRatio: 2, backgroundColor: "#FFFFFF" });
-      setInvoiceModal((prev) => ({ ...prev, generated: true }));
-      setCompletedSessions((prev) =>
-        prev.map((s) => (s.id === invoiceModal.session?.id ? { ...s, invoiceImage: dataUrl } : s))
-      );
-    } catch {
-      // silently fail
+  async function handleQuickCheckin() {
+    if (!qcPerson || !qcRoom || !qcStart || !qcEnd) return;
+    const dateStr = qcDate;
+    const startTs = new Date(`${dateStr}T${qcStart}:00`).getTime();
+    let endTs = new Date(`${dateStr}T${qcEnd}:00`).getTime();
+    if (endTs <= startTs) {
+      endTs += DAY_MS;
     }
-  }, [invoiceModal.session?.id, invoiceModal.generated]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function downloadInvoice(dataUrl: string, fileName: string) {
-    const blob = dataURLToBlob(dataUrl);
-    const url = URL.createObjectURL(blob);
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    if (isIOS) {
-      window.open(url, "_blank");
+    const session = await quickCheckinMut(
+      qcRoomId,
+      qcStaffId,
+      qcRoom.name,
+      qcPerson.name,
+      startTs,
+      endTs,
+      qcHours,
+      qcAmount,
+    );
+    if (session) {
+      resetQuickCheckin();
+      setInvoiceSession(session);
+      setToast({ type: "success", text: `Đã thêm ca cho ${qcPerson.name}` });
     } else {
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
-  }
-
-  function dataURLToBlob(dataUrl: string) {
-    const parts = dataUrl.split(",");
-    const mime = parts[0].match(/:(.*?);/)![1];
-    const bytes = atob(parts[1]);
-    const arr = new Uint8Array(bytes.length);
-    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-    return new Blob([arr], { type: mime });
-  }
-
-  function viewExistingInvoice(session: CompletedSession) {
-    if (session.invoiceImage) {
-      setViewerInvoice(session.invoiceImage);
+      setToast({ type: "error", text: "Lỗi khi tạo ca" });
     }
   }
 
-  // ---- staff CRUD ----
+  async function handleEdit() {
+    if (!editSession || !editStaffId || !editRoomId || !editStart || !editEnd)
+      return;
+    const person = staffById[editStaffId];
+    const room = rooms.find((r) => r.id === editRoomId);
+    if (!person || !room) return;
+    const dateStr = editDate;
+    const startTs = new Date(`${dateStr}T${editStart}:00`).getTime();
+    let endTs = new Date(`${dateStr}T${editEnd}:00`).getTime();
+    if (endTs <= startTs) endTs += DAY_MS;
+    const hours = (endTs - startTs) / 3600000;
+    const amount = hours * person.rate;
+    const ok = await updateSessionMut(editSession.id, {
+      roomId: editRoomId,
+      staffId: editStaffId,
+      roomName: room.name,
+      staffName: person.name,
+      start: startTs,
+      end: endTs,
+      hours,
+      amount,
+    });
+    if (ok) {
+      resetEdit();
+      setToast({ type: "success", text: "Đã cập nhật ca làm" });
+    } else {
+      setToast({ type: "error", text: "Lỗi khi cập nhật" });
+    }
+  }
+
+  async function handleDelete(id: string) {
+    const ok = await deleteSessionMut(id);
+    if (ok) {
+      setDeleteConfirmId(null);
+      setToast({ type: "success", text: "Đã xoá ca làm" });
+    } else {
+      setToast({ type: "error", text: "Lỗi khi xoá ca" });
+    }
+  }
+
+  // ---- Today data ----
+  const todayStartTs = useMemo(() => todayStart(), []);
+  const todaySessions = useMemo(
+    () => completedSessions.filter((s) => s.start >= todayStartTs),
+    [completedSessions, todayStartTs],
+  );
+  const todayPayroll = useMemo(
+    () => todaySessions.reduce((sum, s) => sum + s.amount, 0),
+    [todaySessions],
+  );
+  const todayHours = useMemo(
+    () => todaySessions.reduce((sum, s) => sum + s.hours, 0),
+    [todaySessions],
+  );
+  const todayUniqueStaffCount = useMemo(
+    () => new Set(todaySessions.map((s) => s.staffId)).size,
+    [todaySessions],
+  );
+
+  // ---- History data ----
+  const historyStartTs = useMemo(
+    () => startOfDay(parseDate(historyDate)),
+    [historyDate],
+  );
+  const historyEndTs = historyStartTs + DAY_MS;
+  const historySessions = useMemo(
+    () =>
+      completedSessions.filter(
+        (s) => s.start >= historyStartTs && s.start < historyEndTs,
+      ),
+    [completedSessions, historyStartTs, historyEndTs],
+  );
+
+  // ---- Staff CRUD ----
   function openAddStaff() {
-    setEditingStaffId(null); setFormName(""); setFormRate(""); setStaffFormOpen(true);
+    setEditingStaffId(null);
+    setFormName("");
+    setFormRate("");
+    setStaffFormOpen(true);
   }
   function openEditStaff(person: Staff) {
-    setEditingStaffId(person.id); setFormName(person.name); setFormRate(String(person.rate)); setStaffFormOpen(true);
+    setEditingStaffId(person.id);
+    setFormName(person.name);
+    setFormRate(String(person.rate));
+    setStaffFormOpen(true);
   }
-  function saveStaffForm() {
+  async function saveStaffForm() {
     const name = formName.trim();
     const rate = Number(formRate);
     if (!name || !rate || rate <= 0) {
-      setToast({ type: "end", text: "Vui lòng nhập tên và lương/giờ hợp lệ" });
+      setToast({
+        type: "error",
+        text: "Vui lòng nhập tên và lương/giờ hợp lệ",
+      });
       return;
     }
     if (editingStaffId) {
-      setStaff((prev) => prev.map((p) => (p.id === editingStaffId ? { ...p, name, rate } : p)));
-      setToast({ type: "start", text: `Đã cập nhật ${name}` });
+      await updateStaffMut(editingStaffId, name, rate);
+      setToast({ type: "success", text: `Đã cập nhật ${name}` });
     } else {
-      setStaff((prev) => [...prev, { id: `s${Date.now()}`, name, rate }]);
-      setToast({ type: "start", text: `Đã thêm ${name}` });
+      await addStaffMut(name, rate);
+      setToast({ type: "success", text: `Đã thêm ${name}` });
     }
     setStaffFormOpen(false);
   }
-  function deleteStaff(id: string) {
-    if (activeStaffIdsGlobal.has(id)) {
-      setToast({ type: "end", text: "Nhân viên đang trong ca, không thể xoá" });
-      setConfirmingDeleteId(null);
-      return;
-    }
+  async function deleteStaff(id: string) {
     const person = staffById[id];
-    setStaff((prev) => prev.filter((p) => p.id !== id));
+    await deleteStaffMut(id);
     setConfirmingDeleteId(null);
-    setToast({ type: "end", text: `Đã xoá ${person.name}` });
+    setToast({ type: "success", text: `Đã xoá ${person.name}` });
   }
 
-  // ---- room CRUD ----
+  // ---- Room CRUD ----
   function openAddRoom() {
-    setEditingRoomId(null); setFormRoomName(""); setRoomFormOpen(true);
+    setEditingRoomId(null);
+    setFormRoomName("");
+    setRoomFormOpen(true);
   }
   function openEditRoom(room: Room) {
-    setEditingRoomId(room.id); setFormRoomName(room.name); setRoomFormOpen(true);
+    setEditingRoomId(room.id);
+    setFormRoomName(room.name);
+    setRoomFormOpen(true);
   }
-  function saveRoomForm() {
+  async function saveRoomForm() {
     const name = formRoomName.trim();
     if (!name) {
-      setToast({ type: "end", text: "Vui lòng nhập tên phòng" });
+      setToast({ type: "error", text: "Vui lòng nhập tên địa điểm" });
       return;
     }
     if (editingRoomId) {
-      setRooms((prev) => prev.map((r) => (r.id === editingRoomId ? { ...r, name } : r)));
-      setToast({ type: "start", text: `Đã cập nhật ${name}` });
+      await updateRoomMut(editingRoomId, name);
+      setToast({ type: "success", text: `Đã cập nhật ${name}` });
     } else {
-      setRooms((prev) => [...prev, { id: `r${Date.now()}`, name }]);
-      setToast({ type: "start", text: `Đã thêm ${name}` });
+      await addRoomMut(name);
+      setToast({ type: "success", text: `Đã thêm ${name}` });
     }
     setRoomFormOpen(false);
   }
-  function deleteRoom(id: string) {
+  async function deleteRoom(id: string) {
     const room = rooms.find((r) => r.id === id);
-    const hasActive = activeSessions.some((s) => s.roomId === id);
-    if (hasActive) {
-      setToast({ type: "end", text: "Phòng đang có nhân viên phục vụ, không thể xoá" });
-      setConfirmingDeleteRoomId(null);
-      return;
-    }
-    setRooms((prev) => prev.filter((r) => r.id !== id));
+    await deleteRoomMut(id);
     setConfirmingDeleteRoomId(null);
-    setToast({ type: "end", text: `Đã xoá ${room!.name}` });
+    setToast({ type: "success", text: `Đã xoá ${room!.name}` });
   }
 
-  // ---- payroll aggregation ----
+  // ---- Payroll ----
   const periodCutoff = PERIODS.find((p) => p.id === period)!.cutoff();
-  const filteredCompleted = useMemo(() => completedSessions.filter((s) => s.start >= periodCutoff), [completedSessions, periodCutoff]);
+  const filteredCompleted = useMemo(
+    () => completedSessions.filter((s) => {
+      if (s.start < periodCutoff) return false;
+      if (filterStaffId !== "all" && s.staffId !== filterStaffId) return false;
+      return true;
+    }),
+    [completedSessions, periodCutoff, filterStaffId],
+  );
   const payrollByStaff: PayrollGroup[] = useMemo(() => {
     const map: Record<string, PayrollGroup> = {};
     for (const s of filteredCompleted) {
-      if (!map[s.staffId]) map[s.staffId] = { staffId: s.staffId, name: s.staffName, hours: 0, amount: 0, count: 0, sessions: [] };
+      if (!map[s.staffId])
+        map[s.staffId] = {
+          staffId: s.staffId,
+          name: s.staffName,
+          hours: 0,
+          amount: 0,
+          count: 0,
+          sessions: [],
+        };
       map[s.staffId].hours += s.hours;
       map[s.staffId].amount += s.amount;
       map[s.staffId].count += 1;
@@ -407,207 +452,301 @@ export default function App() {
     }
     return Object.values(map).sort((a, b) => b.amount - a.amount);
   }, [filteredCompleted]);
-  const totalPayrollPeriod = payrollByStaff.reduce((sum, p) => sum + p.amount, 0);
+  const totalPayrollPeriod = payrollByStaff.reduce(
+    (sum, p) => sum + p.amount,
+    0,
+  );
 
-  const roomsActiveCount = new Set(activeSessions.map((s) => s.roomId)).size;
-  const todayPayroll = completedSessions.filter((s) => s.start >= startOfToday()).reduce((sum, s) => sum + s.amount, 0);
-  const todayCompletedCount = completedSessions.filter((s) => s.start >= startOfToday()).length;
+  if (loading) {
+    return (
+      <div
+        className="w-full min-h-screen flex items-center justify-center py-20"
+        style={{ background: COLORS.bgSubtle, color: COLORS.textPrimary }}
+      >
+        <div className="flex flex-col items-center gap-3">
+          <div
+            className="w-8 h-8 rounded-full border-2 animate-spin"
+            style={{
+              borderColor: COLORS.textPrimary,
+              borderTopColor: "transparent",
+            }}
+          />
+          <span className="text-sm" style={{ color: COLORS.textMuted }}>
+            Đang tải...
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ background: COLORS.bgSubtle, color: COLORS.textPrimary }} className="w-full min-h-screen font-sans">
+    <div
+      style={{ background: COLORS.bgSubtle, color: COLORS.textPrimary }}
+      className="w-full min-h-screen font-sans"
+    >
       {/* Top bar */}
-      <div className="sticky top-0 z-30" style={{ background: COLORS.surface, borderBottom: `1px solid ${COLORS.border}` }}>
-        <div className="flex items-center justify-between px-4" style={{ height: 60 }}>
+      <div
+        className="sticky top-0 z-30"
+        style={{
+          background: COLORS.surface,
+          borderBottom: `1px solid ${COLORS.border}`,
+        }}
+      >
+        <div
+          className="flex items-center justify-between px-4"
+          style={{ height: 60 }}
+        >
           <div className="flex items-center gap-3">
-            <button onClick={() => setSidebarOpen(true)} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: COLORS.bgSubtle }}>
-              <Menu size={20} color={COLORS.textPrimary} />
-            </button>
-            <span className="font-bold" style={{ fontSize: 17, color: COLORS.textPrimary }}>Rent Room</span>
+            <div
+              className="w-9 h-9 rounded-full flex items-center justify-center"
+              style={{ background: COLORS.primarySoft }}
+            >
+              <DoorClosed size={18} color={COLORS.textPrimary} />
+            </div>
+            <span
+              className="font-bold"
+              style={{ fontSize: 17, color: COLORS.textPrimary }}
+            >
+              Quản lý ca
+            </span>
           </div>
           <div className="flex items-center gap-2">
-            <button className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: COLORS.bgSubtle }}>
-              <Bell size={18} color={COLORS.textMuted} />
-            </button>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: COLORS.primarySoft, color: COLORS.textPrimary }}>
+            <div
+              className="text-xs font-semibold px-3 py-1.5 rounded-full"
+              style={{
+                background: COLORS.bgSubtle,
+                color: COLORS.textMuted,
+                fontFamily: "'JetBrains Mono', monospace",
+              }}
+            >
+              {formatClock(new Date())}
+            </div>
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
+              style={{
+                background: COLORS.primarySoft,
+                color: COLORS.textPrimary,
+              }}
+            >
               CN
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-4 pt-6 pb-8">
+      {/* Content */}
+      <div className="max-w-2xl mx-auto px-4 pt-6 pb-28">
         {/* ---------------- PAGE TITLE ---------------- */}
         <div className="flex items-start justify-between mb-6">
           <div>
-            <div className="text-xs uppercase font-semibold mb-1" style={{ color: COLORS.textFaint, letterSpacing: "0.08em" }}>
-              {tab === "dashboard" ? "Bảng điều khiển" : tab === "rooms" ? "Quản lý phòng" : tab === "staff" ? "Quản lý nhân sự" : tab === "payroll" ? "Báo cáo tài chính" : "Cài đặt"}
+            <div
+              className="text-xs uppercase font-semibold mb-1"
+              style={{ color: COLORS.textFaint, letterSpacing: "0.08em" }}
+            >
+              {tab === "dashboard"
+                ? "Bảng điều khiển"
+                : tab === "rooms"
+                  ? "Quản lý địa điểm"
+                  : tab === "staff"
+                    ? "Quản lý nhân sự"
+                    : "Báo cáo"}
             </div>
-            <h1 className="text-2xl font-bold" style={{ fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "-0.3px" }}>
-              {tab === "dashboard" ? "Dashboard" : tab === "rooms" ? "Danh sách phòng" : tab === "staff" ? "Nhân viên" : tab === "payroll" ? "Tính lương" : "Cài đặt"}
+            <h1
+              className="text-2xl font-bold"
+              style={{
+                fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "-0.3px",
+              }}
+            >
+              {tab === "dashboard"
+                ? "Trang chủ"
+                : tab === "rooms"
+                  ? "Danh sách địa điểm"
+                  : tab === "staff"
+                    ? "Nhân viên"
+                    : "Báo cáo"}
             </h1>
           </div>
-          {tab === "dashboard" && (
-            <div className="shrink-0 mt-0.5 text-base" style={{ fontFamily: "'JetBrains Mono', monospace", fontVariantNumeric: "tabular-nums", letterSpacing: "0.02em", color: COLORS.textMuted }}>
-              {formatClock(new Date(now))}
+          {tab === "report" && (
+            <div className="relative shrink-0">
+              {(period !== "today" || filterStaffId !== "all") && (
+                <span
+                  className="absolute -top-0.5 -right-0.5 z-10 w-2.5 h-2.5 rounded-full border-2"
+                  style={{ background: COLORS.red, borderColor: COLORS.bg }}
+                />
+              )}
+              <button
+                onClick={() => {
+                  setTempPeriod(period);
+                  setTempFilterStaffId(filterStaffId);
+                  setTempStaffSearch("");
+                  setShowFilters(true);
+                }}
+                className="rounded-xl p-2.5"
+                style={{
+                  background: showFilters ? COLORS.primary : COLORS.bgSubtle,
+                  color: showFilters ? "#FFFFFF" : COLORS.textMuted,
+                  border: `1px solid ${showFilters ? COLORS.primary : COLORS.border}`,
+                  transition: "all 0.15s",
+                }}
+              >
+                <Filter size={18} />
+              </button>
             </div>
           )}
         </div>
 
-        {/* ---------------- TAB SUBHEADER ---------------- */}
-        {tab === "staff" && (
-          <div className="text-sm mb-6" style={{ color: COLORS.textFaint }}>{staff.length} nhân viên · {activeStaffIdsGlobal.size} đang trong ca</div>
-        )}
-        {tab === "payroll" && (
-          <div className="flex gap-1.5 overflow-x-auto mb-6" style={{ scrollbarWidth: "none" }}>
-            {PERIODS.map((p) => (
-              <button key={p.id} onClick={() => setPeriod(p.id)} className="text-xs font-semibold px-3 py-1.5 rounded-full shrink-0"
-                style={{ background: period === p.id ? COLORS.textPrimary : COLORS.bgSubtle, color: period === p.id ? "#FFFFFF" : COLORS.textMuted, border: `1px solid ${period === p.id ? COLORS.textPrimary : COLORS.border}` }}>
-                {p.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* ---------------- KPI DASHBOARD ---------------- */}
+        {/* ---------------- TAB: DASHBOARD ---------------- */}
         {tab === "dashboard" && (
-          <div className="grid grid-cols-2 gap-3 mb-6">
-            <KpiCard
-              icon={<DoorClosed size={18} />}
-              value={`${roomsActiveCount}`}
-              label="PHÒNG ĐANG PHỤC VỤ"
-              sub={`${roomsActiveCount}/${rooms.length}`}
-            />
-            <KpiCard
-              icon={<Users size={18} />}
-              value={`${activeSessions.length}`}
-              label="NHÂN VIÊN TRONG CA"
-              sub="Đang làm"
-            />
-            <KpiCard
-              icon={<TrendingUp size={18} />}
-              value={formatMoney(todayPayroll)}
-              label="TỔNG LƯƠNG HÔM NAY"
-              sub={todayCompletedCount > 0 ? `${todayCompletedCount} ca` : "Chưa có ca"}
-            />
-            <KpiCard
-              icon={<FileText size={18} />}
-              value={String(todayCompletedCount)}
-              label="CA HOÀN THÀNH HÔM NAY"
-              sub="Tổng số"
-              accent
-            />
+          <div className="flex flex-col gap-4">
+            {/* KPI cards */}
+            <div className="grid grid-cols-2 gap-3">
+              <KpiCard
+                icon={<TrendingUp size={16} />}
+                value={formatMoney(todayPayroll)}
+                label="Tổng lương"
+                accent
+              />
+              <KpiCard
+                icon={<Users size={16} />}
+                value={String(todayUniqueStaffCount)}
+                label="Nhân viên hôm nay"
+              />
             </div>
-        )}
 
-        {/* ---------------- TAB: DASHBOARD (phòng) ---------------- */}
-        {tab === "dashboard" && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-            {rooms.map((room) => {
-              const sessions = activeSessions.filter((s) => s.roomId === room.id);
-              const isActive = sessions.length > 0;
-              const isExpanded = roomExpanded.has(room.id);
-              return (
-                <div key={room.id} className="rounded-2xl p-4 flex flex-col gap-3"
-                  style={{ background: COLORS.surface, border: `1px solid ${isActive ? COLORS.textPrimary : COLORS.border}`, boxShadow: "0 1px 2px rgba(16,24,40,0.04)" }}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-base font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{room.name}</span>
-                    <div className="flex items-center gap-2">
-                      {isActive && (
-                        <button onClick={() => toggleRoom(room.id)} className="text-xs font-semibold px-2.5 py-1 rounded-lg flex items-center gap-1"
-                          style={{ background: COLORS.bgSubtle, color: COLORS.textMuted, border: `1px solid ${COLORS.border}` }}>
-                          <ChevronDown size={13} style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
-                          {isExpanded ? "Thu gọn" : "Chi tiết"}
-                        </button>
-                      )}
-                      <StatusTag active={isActive} />
-                    </div>
-                  </div>
-
-                  {sessions.length === 0 && <div className="text-sm" style={{ color: COLORS.textFaint }}>Chưa có nhân viên phục vụ</div>}
-
-                  {/* Collapsed: only staff names */}
-                  {!isExpanded && sessions.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {sessions.map((session) => {
-                        const person = staffById[session.staffId];
-                        if (!person) return null;
-                        return (
-                          <span key={session.id} className="text-xs font-medium px-2.5 py-1 rounded-lg" style={{ background: COLORS.primarySoft, color: COLORS.primary }}>
-                            {person.name}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Expanded: full details */}
-                  {isExpanded && (
-                    <div className="flex flex-col gap-2">
-                      {sessions.map((session) => {
-                        const person = staffById[session.staffId];
-                        if (!person) return null;
-                        return (
-                          <div key={session.id} className="rounded-xl p-3 flex items-center justify-between gap-2" style={{ background: COLORS.primarySoft }}>
-                            <div className="min-w-0">
-                              <div className="text-sm font-medium truncate">{person.name}</div>
-                              <div className="text-[11px] mt-0.5" style={{ color: COLORS.textMuted }}>Vào lúc {formatClock(new Date(session.start))}</div>
-                              <div className="flex items-center gap-1.5 mt-0.5" style={{ fontFamily: "'JetBrains Mono', monospace", fontVariantNumeric: "tabular-nums", letterSpacing: "0.02em", color: "#16A34A" }}>
-                                <span className="inline-block w-1.5 h-1.5 rounded-full pulse-dot" style={{ background: "#16A34A" }} />
-                                {formatElapsed(now - session.start)}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <button onClick={() => endSession(session.id)} className="text-xs font-semibold rounded-lg px-3 py-2" style={{ background: COLORS.primary, color: "#FFFFFF" }}>Kết thúc</button>
-                              <button onClick={() => setCancelConfirmModal({ sessionId: session.id, staffName: person.name })} className="text-xs font-semibold rounded-lg px-3 py-2" style={{ background: COLORS.bgSubtle, color: COLORS.red }}>Hủy</button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  <button onClick={() => setModalRoomId(room.id)} className="mt-1 rounded-xl py-3 text-sm font-semibold flex items-center justify-center gap-1.5"
-                    style={{ background: COLORS.primarySoft, color: COLORS.primary }}>
-                    <Plus size={16} />
-                    {sessions.length === 0 ? "Bắt đầu ca" : "Thêm nhân viên"}
-                  </button>
+            {/* Today's sessions */}
+            <div className="flex items-center justify-between">
+              <div
+                className="text-sm font-semibold"
+                style={{ color: COLORS.textPrimary }}
+              >
+                Hôm nay · {formatDate(new Date())}
+              </div>
+              {todaySessions.length > 0 && (
+                <div className="text-xs" style={{ color: COLORS.textFaint }}>
+                  {todaySessions.length} ca
                 </div>
-              );
-            })}
+              )}
+            </div>
+
+            <div className="flex flex-col gap-2.5">
+              {todaySessions.length === 0 ? (
+                <div
+                  className="rounded-2xl p-6 text-sm text-center"
+                  style={{
+                    background: COLORS.surface,
+                    border: `1px solid ${COLORS.border}`,
+                    color: COLORS.textFaint,
+                  }}
+                >
+                  <Clock
+                    size={24}
+                    className="mx-auto mb-2"
+                    style={{ color: COLORS.textFaint }}
+                  />
+                  Chưa có ca làm nào hôm nay
+                  <div className="mt-1 text-xs">
+                    Nhấn <strong>&ldquo;Chấm công nhanh&rdquo;</strong> để bắt
+                    đầu
+                  </div>
+                </div>
+              ) : (
+                todaySessions.map((session) => (
+                  <CheckinCard
+                    key={session.id}
+                    session={session}
+                    onEdit={() => openEdit(session)}
+                    onDelete={() => setDeleteConfirmId(session.id)}
+                    onInvoice={() => setInvoiceSession(session)}
+                  />
+                ))
+              )}
+            </div>
           </div>
         )}
 
         {/* ---------------- TAB: ROOMS CRUD ---------------- */}
         {tab === "rooms" && (
           <div className="flex flex-col gap-2.5">
-            <button onClick={openAddRoom} className="rounded-2xl py-3.5 text-sm font-semibold flex items-center justify-center gap-1.5 mb-1" style={{ background: COLORS.textPrimary, color: "#FFFFFF" }}>
-              <Plus size={16} /> Thêm phòng
+            <button
+              onClick={openAddRoom}
+              className="rounded-2xl py-3.5 text-sm font-semibold flex items-center justify-center gap-1.5 mb-1"
+              style={{ background: COLORS.textPrimary, color: "#FFFFFF" }}
+            >
+              <Plus size={16} /> Thêm địa điểm
             </button>
 
             {rooms.map((r, idx) => {
               const confirming = confirmingDeleteRoomId === r.id;
-              const hasActive = activeSessions.some((s) => s.roomId === r.id);
               return (
-                <div key={r.id} className="rounded-2xl p-4" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, boxShadow: "0 1px 2px rgba(16,24,40,0.04)" }}>
+                <div
+                  key={r.id}
+                  className="rounded-2xl p-4"
+                  style={{
+                    background: COLORS.surface,
+                    border: `1px solid ${COLORS.border}`,
+                    boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
+                  }}
+                >
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold" style={{ background: COLORS.primarySoft, color: COLORS.textPrimary }}>
+                      <div
+                        className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold"
+                        style={{
+                          background: COLORS.primarySoft,
+                          color: COLORS.textPrimary,
+                        }}
+                      >
                         {String(idx + 1).padStart(2, "0")}
                       </div>
                       <div className="min-w-0">
-                        <div className="font-medium text-sm truncate">{r.name}</div>
-                        <div className="text-xs mt-0.5" style={{ color: COLORS.textFaint }}>{hasActive ? "Đang có nhân viên" : "Trống"}</div>
+                        <div className="font-medium text-sm truncate">
+                          {r.name}
+                        </div>
                       </div>
                     </div>
                     {!confirming ? (
                       <div className="flex items-center gap-1 shrink-0">
-                        <button onClick={() => openEditRoom(r)} className="rounded-lg p-2" style={{ color: COLORS.textMuted, background: COLORS.bgSubtle }}><Pencil size={15} /></button>
-                        <button onClick={() => setConfirmingDeleteRoomId(r.id)} className="rounded-lg p-2" style={{ color: COLORS.red, background: COLORS.redSoft }}><Trash2 size={15} /></button>
+                        <button
+                          onClick={() => openEditRoom(r)}
+                          className="rounded-lg p-2"
+                          style={{
+                            color: COLORS.textMuted,
+                            background: COLORS.bgSubtle,
+                          }}
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          onClick={() => setConfirmingDeleteRoomId(r.id)}
+                          className="rounded-lg p-2"
+                          style={{
+                            color: COLORS.red,
+                            background: COLORS.redSoft,
+                          }}
+                        >
+                          <Trash2 size={15} />
+                        </button>
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <button onClick={() => setConfirmingDeleteRoomId(null)} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg" style={{ background: COLORS.bgSubtle, color: COLORS.textMuted }}>Huỷ</button>
-                        <button onClick={() => deleteRoom(r.id)} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg" style={{ background: COLORS.red, color: "#FFFFFF" }}>Xoá</button>
+                        <button
+                          onClick={() => setConfirmingDeleteRoomId(null)}
+                          className="text-xs font-semibold px-2.5 py-1.5 rounded-lg"
+                          style={{
+                            background: COLORS.bgSubtle,
+                            color: COLORS.textMuted,
+                          }}
+                        >
+                          Huỷ
+                        </button>
+                        <button
+                          onClick={() => deleteRoom(r.id)}
+                          className="text-xs font-semibold px-2.5 py-1.5 rounded-lg"
+                          style={{ background: COLORS.red, color: "#FFFFFF" }}
+                        >
+                          Xoá
+                        </button>
                       </div>
                     )}
                   </div>
@@ -620,32 +759,84 @@ export default function App() {
         {/* ---------------- TAB: STAFF ---------------- */}
         {tab === "staff" && (
           <div className="flex flex-col gap-2.5">
-            <button onClick={openAddStaff} className="rounded-2xl py-3.5 text-sm font-semibold flex items-center justify-center gap-1.5 mb-1" style={{ background: COLORS.textPrimary, color: "#FFFFFF" }}>
+            <button
+              onClick={openAddStaff}
+              className="rounded-2xl py-3.5 text-sm font-semibold flex items-center justify-center gap-1.5 mb-1"
+              style={{ background: COLORS.textPrimary, color: "#FFFFFF" }}
+            >
               <Plus size={16} /> Thêm nhân viên
             </button>
 
             {staff.map((p) => {
-              const isWorking = activeStaffIdsGlobal.has(p.id);
               const confirming = confirmingDeleteId === p.id;
               return (
-                <div key={p.id} className="rounded-2xl p-4" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, boxShadow: "0 1px 2px rgba(16,24,40,0.04)" }}>
+                <div
+                  key={p.id}
+                  className="rounded-2xl p-4"
+                  style={{
+                    background: COLORS.surface,
+                    border: `1px solid ${COLORS.border}`,
+                    boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
+                  }}
+                >
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm truncate">{p.name}</span>
-                        {isWorking && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0" style={{ background: COLORS.primarySoft, color: COLORS.primary }}>Đang trong ca</span>}
+                      <span className="font-medium text-sm truncate block">
+                        {p.name}
+                      </span>
+                      <div
+                        className="text-sm mt-0.5"
+                        style={{
+                          fontFamily: "'JetBrains Mono', monospace",
+                          fontVariantNumeric: "tabular-nums",
+                          color: COLORS.textFaint,
+                        }}
+                      >
+                        {formatMoney(p.rate)}/giờ
                       </div>
-                      <div className="text-sm mt-0.5" style={{ fontFamily: "'JetBrains Mono', monospace", fontVariantNumeric: "tabular-nums", color: COLORS.textFaint }}>{formatMoney(p.rate)}/giờ</div>
                     </div>
                     {!confirming ? (
                       <div className="flex items-center gap-1 shrink-0">
-                        <button onClick={() => openEditStaff(p)} className="rounded-lg p-2" style={{ color: COLORS.textMuted, background: COLORS.bgSubtle }}><Pencil size={15} /></button>
-                        <button onClick={() => setConfirmingDeleteId(p.id)} className="rounded-lg p-2" style={{ color: COLORS.red, background: COLORS.redSoft }}><Trash2 size={15} /></button>
+                        <button
+                          onClick={() => openEditStaff(p)}
+                          className="rounded-lg p-2"
+                          style={{
+                            color: COLORS.textMuted,
+                            background: COLORS.bgSubtle,
+                          }}
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          onClick={() => setConfirmingDeleteId(p.id)}
+                          className="rounded-lg p-2"
+                          style={{
+                            color: COLORS.red,
+                            background: COLORS.redSoft,
+                          }}
+                        >
+                          <Trash2 size={15} />
+                        </button>
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <button onClick={() => setConfirmingDeleteId(null)} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg" style={{ background: COLORS.bgSubtle, color: COLORS.textMuted }}>Huỷ</button>
-                        <button onClick={() => deleteStaff(p.id)} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg" style={{ background: COLORS.red, color: "#FFFFFF" }}>Xoá</button>
+                        <button
+                          onClick={() => setConfirmingDeleteId(null)}
+                          className="text-xs font-semibold px-2.5 py-1.5 rounded-lg"
+                          style={{
+                            background: COLORS.bgSubtle,
+                            color: COLORS.textMuted,
+                          }}
+                        >
+                          Huỷ
+                        </button>
+                        <button
+                          onClick={() => deleteStaff(p.id)}
+                          className="text-xs font-semibold px-2.5 py-1.5 rounded-lg"
+                          style={{ background: COLORS.red, color: "#FFFFFF" }}
+                        >
+                          Xoá
+                        </button>
                       </div>
                     )}
                   </div>
@@ -656,62 +847,148 @@ export default function App() {
         )}
 
         {/* ---------------- TAB: PAYROLL ---------------- */}
-        {tab === "payroll" && (
+        {tab === "report" && (
           <div className="flex flex-col gap-3">
-            <div className="rounded-2xl p-5" style={{ background: COLORS.textPrimary, color: "#FFFFFF" }}>
-              <div className="text-xs mb-1" style={{ color: "rgba(255,255,255,0.6)" }}>Tổng lương · {PERIODS.find((p) => p.id === period)!.label}</div>
-              <div className="text-3xl font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{formatMoney(totalPayrollPeriod)}</div>
-              <div className="flex items-center gap-3 mt-2 text-xs">
-                <span style={{ color: "rgba(255,255,255,0.65)" }}>{filteredCompleted.length} ca hoàn thành</span>
+
+            <div
+              className="rounded-2xl p-5"
+              style={{ background: COLORS.textPrimary, color: "#FFFFFF" }}
+            >
+              <div
+                className="text-base font-semibold mb-1.5"
+                style={{ color: "rgba(255,255,255,0.75)" }}
+              >
+                Tổng lương · {PERIODS.find((p) => p.id === period)!.label}{filterStaffId !== "all" && staffById[filterStaffId] ? ` · ${staffById[filterStaffId].name}` : ""}
+              </div>
+              <div
+                className="text-4xl font-bold"
+                style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+              >
+                {formatMoney(totalPayrollPeriod)}
+              </div>
+              <div className="flex items-center gap-3 mt-3 text-sm">
+                <span style={{ color: "rgba(255,255,255,0.65)" }}>
+                  {filteredCompleted.length} ca hoàn thành
+                </span>
               </div>
             </div>
 
             {payrollByStaff.length === 0 ? (
-              <div className="rounded-2xl p-6 text-sm text-center" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, color: COLORS.textFaint }}>
+              <div
+                className="rounded-2xl p-6 text-sm text-center"
+                style={{
+                  background: COLORS.surface,
+                  border: `1px solid ${COLORS.border}`,
+                  color: COLORS.textFaint,
+                }}
+              >
                 Chưa có ca nào hoàn thành trong khoảng thời gian này
               </div>
             ) : (
               payrollByStaff.map((p) => {
-                const isExpanded = expandedStaffId === p.staffId;
                 return (
-                  <div key={p.staffId} className="rounded-2xl overflow-hidden" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, boxShadow: "0 1px 2px rgba(16,24,40,0.04)" }}>
+                  <div
+                    key={p.staffId}
+                    className="rounded-2xl overflow-hidden"
+                    style={{
+                      background: COLORS.surface,
+                      border: `1px solid ${COLORS.border}`,
+                      boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
+                    }}
+                  >
                     <div className="p-4">
                       <div className="flex items-center justify-between">
-                        <button onClick={() => setExpandedStaffId(isExpanded ? null : p.staffId)} className="text-left min-w-0 flex-1">
-                          <div className="font-medium text-sm truncate flex items-center gap-1.5">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium text-sm truncate">
                             {p.name}
-                            <ChevronDown size={14} style={{ color: COLORS.textFaint, transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
                           </div>
-                          <div className="text-xs mt-0.5" style={{ color: COLORS.textFaint }}>{p.count} ca · {p.hours.toFixed(2)} giờ</div>
-                        </button>
-                        <span className="text-sm font-semibold shrink-0" style={{ fontFamily: "'JetBrains Mono', monospace", fontVariantNumeric: "tabular-nums", color: COLORS.textPrimary }}>{formatMoney(p.amount)}</span>
+                          <div
+                            className="text-xs mt-0.5"
+                            style={{ color: COLORS.textFaint }}
+                          >
+                            {p.count} ca · {formatDuration(p.hours)}
+                          </div>
+                        </div>
+                        <span
+                          className="text-sm font-semibold shrink-0"
+                          style={{
+                            fontFamily: "'JetBrains Mono', monospace",
+                            fontVariantNumeric: "tabular-nums",
+                            color: COLORS.textPrimary,
+                          }}
+                        >
+                          {formatMoney(p.amount)}
+                        </span>
                       </div>
                     </div>
 
-                    {isExpanded && (
-                      <div style={{ borderTop: `1px solid ${COLORS.border}` }}>
+                    <div style={{ borderTop: `1px solid ${COLORS.border}` }}>
                         {p.sessions.map((s) => (
-                          <div key={s.id} className="px-4 py-3" style={{ borderTop: `1px solid ${COLORS.border}` }}>
+                          <div
+                            key={s.id}
+                            className="px-4 py-3"
+                            style={{ borderTop: `1px solid ${COLORS.border}` }}
+                          >
                             <div className="flex items-center justify-between mb-1.5">
-                              <div className="text-xs font-medium" style={{ color: COLORS.textPrimary }}>{s.roomName} · {formatDate(new Date(s.start))}</div>
-                              <div className="text-xs font-semibold" style={{ fontFamily: "'JetBrains Mono', monospace", fontVariantNumeric: "tabular-nums" }}>{formatMoney(s.amount)}</div>
-                            </div>
-                            <div className="flex items-center gap-3 text-[11px]" style={{ color: COLORS.textMuted }}>
-                              <span className="flex items-center gap-1"><LogIn size={11} color={COLORS.primary} /> {formatClock(new Date(s.start))}</span>
-                              <span className="flex items-center gap-1"><LogOut size={11} color={COLORS.primary} /> {formatClock(new Date(s.end))}</span>
-                              <span>{s.hours.toFixed(2)} giờ</span>
-                              <button
-                                onClick={() => viewExistingInvoice(s)}
-                                className="ml-auto text-xs font-semibold px-2.5 py-1 rounded-lg flex items-center gap-1 shrink-0"
-                                style={{ background: COLORS.bgSubtle, color: COLORS.primary, border: `1px solid ${COLORS.primary}` }}
+                              <div
+                                className="text-xs font-medium"
+                                style={{ color: COLORS.textPrimary }}
                               >
-                                <FileText size={12} /> Hoá đơn
-                              </button>
+                                {s.roomName} ·{" "}
+                                {formatDateShort(new Date(s.start))}
+                              </div>
+                              <div
+                                className="text-xs font-semibold"
+                                style={{
+                                  fontFamily: "'JetBrains Mono', monospace",
+                                  fontVariantNumeric: "tabular-nums",
+                                }}
+                              >
+                                {formatMoney(s.amount)}
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <div
+                                className="flex items-center gap-3 text-[11px]"
+                                style={{ color: COLORS.textMuted }}
+                              >
+                                <span className="flex items-center gap-1">
+                                  <LogIn size={11} color={COLORS.primary} />{" "}
+                                  {formatClock(new Date(s.start))}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <LogOut size={11} color={COLORS.primary} />{" "}
+                                  {formatClock(new Date(s.end))}
+                                </span>
+                                <span>{formatDuration(s.hours)}</span>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0 ml-2">
+                                <button
+                                  onClick={() => setInvoiceSession(s)}
+                                  className="rounded-lg p-1.5"
+                                  style={{ color: COLORS.blue, background: "#EBF0FE" }}
+                                >
+                                  <Receipt size={12} />
+                                </button>
+                                <button
+                                  onClick={() => setEditSession(s)}
+                                  className="rounded-lg p-1.5"
+                                  style={{ color: COLORS.textMuted, background: COLORS.bgSubtle }}
+                                >
+                                  <Pencil size={12} />
+                                </button>
+                                <button
+                                  onClick={() => setDeleteConfirmId(s.id)}
+                                  className="rounded-lg p-1.5"
+                                  style={{ color: COLORS.red, background: COLORS.redSoft }}
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
                             </div>
                           </div>
                         ))}
                       </div>
-                    )}
                   </div>
                 );
               })
@@ -719,181 +996,685 @@ export default function App() {
           </div>
         )}
 
-        {/* ---------------- TAB: SETTINGS ---------------- */}
-        {tab === "settings" && (
+        {/* ---------------- TAB: HISTORY ---------------- */}
+        {tab === "history" && (
           <div className="flex flex-col gap-4">
-            {/* Reset data */}
-            <div className="rounded-2xl p-5" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
-              <h2 className="text-sm font-semibold mb-1" style={{ color: COLORS.textPrimary }}>Xoá dữ liệu</h2>
-              <p className="text-xs mb-4" style={{ color: COLORS.textFaint }}>Xoá toàn bộ phòng, nhân viên và lịch sử ca làm việc</p>
+            {/* Date navigation */}
+            <div
+              className="flex items-center justify-between rounded-2xl p-3"
+              style={{
+                background: COLORS.surface,
+                border: `1px solid ${COLORS.border}`,
+              }}
+            >
               <button
                 onClick={() => {
-                  setActiveSessions([]);
-                  setCompletedSessions([]);
+                  const d = parseDate(historyDate);
+                  d.setDate(d.getDate() - 1);
+                  setHistoryDate(toDateInputValue(d));
                 }}
-                className="flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-xl"
-                style={{ background: "#FEE2E2", color: "#DC2626", border: "1px solid #FCA5A5" }}
+                className="w-9 h-9 rounded-xl flex items-center justify-center"
+                style={{ background: COLORS.bgSubtle }}
               >
-                <Trash size={14} /> Reset dữ liệu
+                <ChevronLeft size={18} color={COLORS.textPrimary} />
+              </button>
+              <div className="flex items-center gap-2">
+                <Calendar size={16} color={COLORS.textMuted} />
+                <input
+                  type="date"
+                  value={historyDate}
+                  onChange={(e) => setHistoryDate(e.target.value)}
+                  className="text-sm font-semibold bg-transparent text-center"
+                  style={{
+                    color: COLORS.textPrimary,
+                    border: "none",
+                    outline: "none",
+                  }}
+                />
+              </div>
+              <button
+                onClick={() => {
+                  const d = parseDate(historyDate);
+                  d.setDate(d.getDate() + 1);
+                  setHistoryDate(toDateInputValue(d));
+                }}
+                className="w-9 h-9 rounded-xl flex items-center justify-center"
+                style={{ background: COLORS.bgSubtle }}
+              >
+                <ChevronRight size={18} color={COLORS.textPrimary} />
               </button>
             </div>
 
-            {/* Auto-reset schedule */}
-            <div className="rounded-2xl p-5" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <h2 className="text-sm font-semibold" style={{ color: COLORS.textPrimary }}>Tự động xoá hàng ngày</h2>
-                  <p className="text-xs mt-0.5" style={{ color: COLORS.textFaint }}>Tự động reset dữ liệu vào một giờ nhất định mỗi ngày</p>
-                </div>
-                <button
-                  onClick={() => setSettings((prev) => ({ ...prev, autoReset: !prev.autoReset }))}
-                  className="relative w-11 h-6 rounded-full transition-colors"
+            {/* Sessions for selected date */}
+            <div className="flex items-center justify-between">
+              <div
+                className="text-sm font-semibold"
+                style={{ color: COLORS.textPrimary }}
+              >
+                {formatDate(parseDate(historyDate))}
+              </div>
+              {historySessions.length > 0 && (
+                <div
+                  className="text-xs font-semibold px-2.5 py-1 rounded-full"
                   style={{
-                    background: settings.autoReset ? COLORS.primary : COLORS.border,
-                    border: `1px solid ${settings.autoReset ? COLORS.primary : COLORS.border}`,
+                    background: COLORS.primarySoft,
+                    color: COLORS.primary,
                   }}
                 >
-                  <div
-                    className="absolute top-0.5 w-[18px] h-[18px] rounded-full bg-white transition-transform shadow-sm"
-                    style={{ transform: settings.autoReset ? "translateX(20px)" : "translateX(2px)" }}
-                  />
-                </button>
-              </div>
-              {settings.autoReset && (
-                <div className="flex items-center gap-3">
-                  <Clock size={16} style={{ color: COLORS.textMuted }} />
-                  <input
-                    type="time"
-                    value={settings.resetTime}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, resetTime: e.target.value }))}
-                    className="text-sm font-semibold rounded-lg px-3 py-1.5"
-                    style={{
-                      background: COLORS.bgSubtle,
-                      color: COLORS.textPrimary,
-                      border: `1px solid ${COLORS.border}`,
-                      fontFamily: "'JetBrains Mono', monospace",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  />
-                  <span className="text-xs" style={{ color: COLORS.textFaint }}>Giờ reset hàng ngày</span>
-                </div>
-              )}
-              {settings.autoReset && settings.lastResetDate && (
-                <div className="text-xs mt-3" style={{ color: COLORS.textMuted }}>
-                  Lần reset gần nhất: {settings.lastResetDate}
+                  {historySessions.length} ca ·{" "}
+                  {formatMoney(
+                    historySessions.reduce((s, c) => s + c.amount, 0),
+                  )}
                 </div>
               )}
             </div>
+
+            <div className="flex flex-col gap-2.5">
+              {historySessions.length === 0 ? (
+                <div
+                  className="rounded-2xl p-6 text-sm text-center"
+                  style={{
+                    background: COLORS.surface,
+                    border: `1px solid ${COLORS.border}`,
+                    color: COLORS.textFaint,
+                  }}
+                >
+                  Không có ca làm nào trong ngày này
+                </div>
+              ) : (
+                historySessions.map((session) => (
+                  <CheckinCard
+                    key={session.id}
+                    session={session}
+                    onEdit={() => openEdit(session)}
+                    onDelete={() => setDeleteConfirmId(session.id)}
+                    onInvoice={() => setInvoiceSession(session)}
+                  />
+                ))
+              )}
+            </div>
+
+            {/* Today shortcut */}
+            {historyDate !== toDateInputValue(new Date()) && (
+              <button
+                onClick={() => setHistoryDate(toDateInputValue(new Date()))}
+                className="text-xs font-semibold text-center py-3 rounded-xl"
+                style={{ background: COLORS.bgSubtle, color: COLORS.blue }}
+              >
+                Xem hôm nay
+              </button>
+            )}
           </div>
         )}
       </div>
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-50" onClick={() => setSidebarOpen(false)}>
-          <div className="absolute inset-0" style={{ background: "rgba(15,18,24,0.45)" }} />
-          <div onClick={(e) => e.stopPropagation()} className="absolute left-0 top-0 bottom-0 w-64 max-w-[75vw] sidebar-in flex flex-col" style={{ background: COLORS.surface }}>
-            <div className="flex items-center gap-3 px-5 pt-6 pb-4" style={{ borderBottom: `1px solid ${COLORS.border}` }}>
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: COLORS.primarySoft, color: COLORS.textPrimary }}>
-                <DoorClosed size={20} />
-              </div>
-              <div>
-                <div className="text-base font-bold" style={{ color: COLORS.textPrimary }}>Rent Room</div>
-                <div className="text-xs" style={{ color: COLORS.textFaint }}>Quản lý nhân viên</div>
-              </div>
-            </div>
-            <div className="flex-1 px-3 py-5 flex flex-col gap-1">
-              {TABS.map((t) => {
-                const Icon = t.icon;
-                const isActive = tab === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => { setTab(t.id); setSidebarOpen(false); }}
-                    className="flex items-center gap-3 rounded-xl px-4 py-3 text-left"
-                    style={{ background: isActive ? `${COLORS.primarySoft}` : "transparent", color: isActive ? COLORS.textPrimary : COLORS.textMuted, fontSize: 15, fontWeight: 500 }}
-                  >
-                    <Icon size={20} color={isActive ? COLORS.textPrimary : COLORS.textFaint} />
-                    {t.label}
-                  </button>
-                );
-              })}
-            </div>
-            <div style={{ borderTop: `1px solid ${COLORS.border}`, padding: "14px 16px" }}>
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: COLORS.primarySoft, color: COLORS.textPrimary }}>
-                  CN
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold truncate" style={{ color: COLORS.textPrimary }}>Chủ quán</div>
-                  <div className="text-xs" style={{ color: COLORS.textFaint }}>Quản trị viên</div>
-                </div>
-              </div>
+
+      {/* ---- Bottom Navigation ---- */}
+      <div
+        className="fixed bottom-0 left-0 right-0 z-40"
+        style={{
+          background: COLORS.surface,
+          borderTop: `1px solid ${COLORS.border}`,
+        }}
+      >
+        <div
+          className="max-w-2xl mx-auto flex items-center justify-between px-6"
+          style={{ height: 64 }}
+        >
+          {/* Left icons */}
+          <div className="flex items-center gap-10">
+            {BOTTOM_TABS.slice(0, 2).map((t) => {
+              const Icon = t.icon;
+              const isActive = tab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className="flex items-center justify-center"
+                  style={{ width: 44, height: 44 }}
+                >
+                  <Icon
+                    size={26}
+                    color={isActive ? COLORS.textPrimary : COLORS.textFaint}
+                    strokeWidth={isActive ? 2.5 : 2}
+                  />
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Center FAB */}
+          <div
+            className="relative flex flex-col items-center"
+            style={{ marginTop: -28 }}
+          >
+            <div
+              className="w-[72px] h-[72px] rounded-full flex items-center justify-center"
+              style={{ background: COLORS.surface }}
+            >
+              <button
+                onClick={() => setQuickCheckinOpen(true)}
+                className="w-[58px] h-[58px] rounded-full flex items-center justify-center active:scale-95 transition-transform"
+                style={{ background: COLORS.primary }}
+              >
+                <Plus size={28} strokeWidth={2.5} color="#FFFFFF" />
+              </button>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Confirm cancel session */}
-      {cancelConfirmModal && (
-        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,24,0.45)" }} onClick={() => setCancelConfirmModal(null)}>
-          <div onClick={(e) => e.stopPropagation()} className="w-[300px] rounded-2xl p-5" style={{ background: COLORS.surface }}>
-            <div className="text-sm font-semibold mb-2" style={{ color: COLORS.textPrimary }}>Xác nhận hủy ca</div>
-            <div className="text-sm mb-5" style={{ color: COLORS.textMuted }}>Bạn có chắc muốn hủy ca của <strong>{cancelConfirmModal.staffName}</strong>?</div>
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setCancelConfirmModal(null)} className="text-xs font-semibold rounded-lg px-4 py-2" style={{ background: COLORS.bgSubtle, color: COLORS.textMuted }}>Không</button>
-              <button onClick={() => cancelSession(cancelConfirmModal.sessionId)} className="text-xs font-semibold rounded-lg px-4 py-2" style={{ background: COLORS.red, color: "#FFFFFF" }}>Xác nhận hủy</button>
-            </div>
+          {/* Right icons */}
+          <div className="flex items-center gap-10">
+            {BOTTOM_TABS.slice(2).map((t) => {
+              const Icon = t.icon;
+              const isActive = tab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className="flex items-center justify-center"
+                  style={{ width: 44, height: 44 }}
+                >
+                  <Icon
+                    size={26}
+                    color={isActive ? COLORS.textPrimary : COLORS.textFaint}
+                    strokeWidth={isActive ? 2.5 : 2}
+                  />
+                </button>
+              );
+            })}
           </div>
         </div>
-      )}
+      </div>
 
-      {/* Bottom sheet: chọn nhân viên cho phòng */}
-      {modalRoomId && (
-        <div className="fixed inset-0 flex items-end sm:items-center justify-center z-50" style={{ background: "rgba(15,18,24,0.45)" }} onClick={() => setModalRoomId(null)}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 sheet-in" style={{ background: COLORS.surface }}>
-            <div className="w-9 h-1 rounded-full mx-auto mb-4 sm:hidden" style={{ background: COLORS.border }} />
+      {/* ---- Quick Check-in Sheet ---- */}
+      {quickCheckinOpen && (
+        <div
+          className="fixed inset-0 flex items-end sm:items-center justify-center z-50"
+          style={{ background: "rgba(15,18,24,0.45)" }}
+          onClick={resetQuickCheckin}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 sheet-in"
+            style={{
+              background: COLORS.surface,
+              maxHeight: "90vh",
+              overflowY: "auto",
+            }}
+          >
+            <div
+              className="w-9 h-1 rounded-full mx-auto mb-4 sm:hidden"
+              style={{ background: COLORS.border }}
+            />
             <div className="flex items-center justify-between mb-4">
               <div>
-                <div className="text-xs" style={{ color: COLORS.textFaint }}>{rooms.find((r) => r.id === modalRoomId)?.name}</div>
-                <div className="text-lg font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Chọn nhân viên</div>
+                <div className="text-xs" style={{ color: COLORS.textFaint }}>
+                  Tạo ca làm mới
+                </div>
+                <div
+                  className="text-lg font-semibold"
+                  style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+                >
+                  Chấm công nhanh
+                </div>
               </div>
-              <button onClick={() => setModalRoomId(null)} style={{ color: COLORS.textFaint }}><X size={20} /></button>
+              <button
+                onClick={resetQuickCheckin}
+                style={{ color: COLORS.textFaint }}
+              >
+                <X size={20} />
+              </button>
             </div>
-            <div className="flex flex-col gap-2">
-              {staff
-                .filter((p) => !activeSessions.some((s) => s.staffId === p.id))
-                .map((p) => (
-                <button key={p.id} onClick={() => startSession(modalRoomId, p.id)} className="flex items-center justify-between rounded-xl px-4 py-3.5 text-left" style={{ background: COLORS.bgSubtle, border: `1px solid ${COLORS.border}` }}>
-                  <span className="font-medium text-sm">{p.name}</span>
-                  <span className="text-xs" style={{ fontFamily: "'JetBrains Mono', monospace", fontVariantNumeric: "tabular-nums", color: COLORS.textFaint }}>{formatMoney(p.rate)}/giờ</span>
-                </button>
-              ))}
-              {staff.filter((p) => !activeSessions.some((s) => s.staffId === p.id)).length === 0 && (
-                <div className="text-sm text-center py-3" style={{ color: COLORS.textFaint }}>Tất cả nhân viên đã được phân vào phòng</div>
+            <div className="flex flex-col gap-3">
+              {/* Date */}
+              <div>
+                <label
+                  className="text-xs font-medium mb-1 block"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Ngày
+                </label>
+                <input
+                  type="date"
+                  value={qcDate}
+                  onChange={(e) => setQcDate(e.target.value)}
+                  className="w-full rounded-xl px-4 py-3 text-sm"
+                  style={{
+                    background: COLORS.bgSubtle,
+                    border: `1px solid ${COLORS.border}`,
+                    color: COLORS.textPrimary,
+                  }}
+                />
+              </div>
+              {/* Staff */}
+              <div>
+                <label
+                  className="text-xs font-medium mb-1.5 block"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Nhân viên
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {staff.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => setQcStaffId(p.id)}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg"
+                      style={{
+                        background:
+                          qcStaffId === p.id ? COLORS.primary : COLORS.bgSubtle,
+                        color:
+                          qcStaffId === p.id ? "#FFFFFF" : COLORS.textMuted,
+                        border: `1px solid ${qcStaffId === p.id ? COLORS.primary : COLORS.border}`,
+                      }}
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Room */}
+              <div>
+                <label
+                  className="text-xs font-medium mb-1.5 block"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Địa điểm
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {rooms.map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => setQcRoomId(r.id)}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg"
+                      style={{
+                        background:
+                          qcRoomId === r.id ? COLORS.primary : COLORS.bgSubtle,
+                        color: qcRoomId === r.id ? "#FFFFFF" : COLORS.textMuted,
+                        border: `1px solid ${qcRoomId === r.id ? COLORS.primary : COLORS.border}`,
+                      }}
+                    >
+                      {r.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Time in */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label
+                    className="text-xs font-medium mb-1 block"
+                    style={{ color: COLORS.textMuted }}
+                  >
+                    Giờ vào
+                  </label>
+                  <input
+                    type="time"
+                    value={qcStart}
+                    onChange={(e) => setQcStart(e.target.value)}
+                    className="w-full rounded-xl px-4 py-3 text-sm"
+                    style={{
+                      background: COLORS.bgSubtle,
+                      border: `1px solid ${COLORS.border}`,
+                      color: COLORS.textPrimary,
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label
+                    className="text-xs font-medium mb-1 block"
+                    style={{ color: COLORS.textMuted }}
+                  >
+                    Giờ ra
+                  </label>
+                  <input
+                    type="time"
+                    value={qcEnd}
+                    onChange={(e) => setQcEnd(e.target.value)}
+                    className="w-full rounded-xl px-4 py-3 text-sm"
+                    style={{
+                      background: COLORS.bgSubtle,
+                      border: `1px solid ${COLORS.border}`,
+                      color: COLORS.textPrimary,
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}
+                  />
+                </div>
+              </div>
+              {/* Preview + Submit */}
+              {qcPerson && qcRoom && qcStart && qcEnd ? (
+                <div
+                  className="rounded-xl p-4"
+                  style={{
+                    background: COLORS.bgSubtle,
+                    border: `1px solid ${COLORS.border}`,
+                  }}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <div
+                        className="text-xs font-medium"
+                        style={{ color: COLORS.textMuted }}
+                      >
+                        {qcPerson.name} · {qcRoom.name}
+                      </div>
+                      <div
+                        className="text-sm font-semibold mt-0.5"
+                        style={{ color: COLORS.primary }}
+                      >
+                        {formatDuration(qcHours)} · {formatMoney(qcAmount)}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleQuickCheckin}
+                    className="w-full rounded-xl py-3 text-sm font-semibold flex items-center justify-center gap-2"
+                    style={{
+                      background: qcHours > 0 ? COLORS.primary : COLORS.border,
+                      color: "#FFFFFF",
+                    }}
+                  >
+                    Tạo ca làm
+                  </button>
+                </div>
+              ) : (
+                <div
+                  className="text-xs text-center py-3"
+                  style={{ color: COLORS.textFaint }}
+                >
+                  Chọn nhân viên, địa điểm, giờ vào và giờ ra
+                </div>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Bottom sheet: thêm / sửa nhân viên */}
-      {staffFormOpen && (
-        <div className="fixed inset-0 flex items-end sm:items-center justify-center z-50" style={{ background: "rgba(15,18,24,0.45)" }} onClick={() => setStaffFormOpen(false)}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 sheet-in" style={{ background: COLORS.surface }}>
-            <div className="w-9 h-1 rounded-full mx-auto mb-4 sm:hidden" style={{ background: COLORS.border }} />
+      {/* ---- Edit Session Sheet ---- */}
+      {editSession && (
+        <div
+          className="fixed inset-0 flex items-end sm:items-center justify-center z-50"
+          style={{ background: "rgba(15,18,24,0.45)" }}
+          onClick={resetEdit}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 sheet-in"
+            style={{
+              background: COLORS.surface,
+              maxHeight: "90vh",
+              overflowY: "auto",
+            }}
+          >
+            <div
+              className="w-9 h-1 rounded-full mx-auto mb-4 sm:hidden"
+              style={{ background: COLORS.border }}
+            />
             <div className="flex items-center justify-between mb-4">
-              <div className="text-lg font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{editingStaffId ? "Sửa nhân viên" : "Thêm nhân viên"}</div>
-              <button onClick={() => setStaffFormOpen(false)} style={{ color: COLORS.textFaint }}><X size={20} /></button>
+              <div>
+                <div className="text-xs" style={{ color: COLORS.textFaint }}>
+                  Chỉnh sửa ca làm
+                </div>
+                <div
+                  className="text-lg font-semibold"
+                  style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+                >
+                  Sửa ca
+                </div>
+              </div>
+              <button onClick={resetEdit} style={{ color: COLORS.textFaint }}>
+                <X size={20} />
+              </button>
             </div>
             <div className="flex flex-col gap-3">
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: COLORS.textMuted }}>Tên nhân viên</label>
-                <input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="VD: Nguyễn Thị Lan" className="w-full rounded-xl px-4 py-3 text-sm" style={{ background: COLORS.bgSubtle, border: `1px solid ${COLORS.border}`, color: COLORS.textPrimary }} />
+                <label
+                  className="text-xs font-medium mb-1 block"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Ngày
+                </label>
+                <input
+                  type="date"
+                  value={editDate}
+                  onChange={(e) => setEditDate(e.target.value)}
+                  className="w-full rounded-xl px-4 py-3 text-sm"
+                  style={{
+                    background: COLORS.bgSubtle,
+                    border: `1px solid ${COLORS.border}`,
+                    color: COLORS.textPrimary,
+                  }}
+                />
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: COLORS.textMuted }}>Lương / giờ (VNĐ)</label>
-                <input value={formRate} onChange={(e) => setFormRate(e.target.value.replace(/[^0-9]/g, ""))} placeholder="VD: 60000" inputMode="numeric" className="w-full rounded-xl px-4 py-3 text-sm" style={{ fontFamily: "'JetBrains Mono', monospace", background: COLORS.bgSubtle, border: `1px solid ${COLORS.border}`, color: COLORS.textPrimary }} />
+                <label
+                  className="text-xs font-medium mb-1.5 block"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Nhân viên
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {staff.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => setEditStaffId(p.id)}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg"
+                      style={{
+                        background:
+                          editStaffId === p.id
+                            ? COLORS.primary
+                            : COLORS.bgSubtle,
+                        color:
+                          editStaffId === p.id ? "#FFFFFF" : COLORS.textMuted,
+                        border: `1px solid ${editStaffId === p.id ? COLORS.primary : COLORS.border}`,
+                      }}
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <button onClick={saveStaffForm} className="rounded-xl py-3.5 text-sm font-semibold mt-1" style={{ background: COLORS.primary, color: "#FFFFFF" }}>
+              <div>
+                <label
+                  className="text-xs font-medium mb-1.5 block"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Địa điểm
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {rooms.map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => setEditRoomId(r.id)}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg"
+                      style={{
+                        background:
+                          editRoomId === r.id
+                            ? COLORS.primary
+                            : COLORS.bgSubtle,
+                        color:
+                          editRoomId === r.id ? "#FFFFFF" : COLORS.textMuted,
+                        border: `1px solid ${editRoomId === r.id ? COLORS.primary : COLORS.border}`,
+                      }}
+                    >
+                      {r.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label
+                    className="text-xs font-medium mb-1 block"
+                    style={{ color: COLORS.textMuted }}
+                  >
+                    Giờ vào
+                  </label>
+                  <input
+                    type="time"
+                    value={editStart}
+                    onChange={(e) => setEditStart(e.target.value)}
+                    className="w-full rounded-xl px-4 py-3 text-sm"
+                    style={{
+                      background: COLORS.bgSubtle,
+                      border: `1px solid ${COLORS.border}`,
+                      color: COLORS.textPrimary,
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label
+                    className="text-xs font-medium mb-1 block"
+                    style={{ color: COLORS.textMuted }}
+                  >
+                    Giờ ra
+                  </label>
+                  <input
+                    type="time"
+                    value={editEnd}
+                    onChange={(e) => setEditEnd(e.target.value)}
+                    className="w-full rounded-xl px-4 py-3 text-sm"
+                    style={{
+                      background: COLORS.bgSubtle,
+                      border: `1px solid ${COLORS.border}`,
+                      color: COLORS.textPrimary,
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}
+                  />
+                </div>
+              </div>
+              <button
+                onClick={handleEdit}
+                className="w-full rounded-xl py-3 text-sm font-semibold mt-1"
+                style={{ background: COLORS.primary, color: "#FFFFFF" }}
+              >
+                Lưu thay đổi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Delete Confirmation ---- */}
+      {deleteConfirmId && (
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50"
+          style={{ background: "rgba(15,18,24,0.45)" }}
+          onClick={() => setDeleteConfirmId(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-[300px] rounded-2xl p-5"
+            style={{ background: COLORS.surface }}
+          >
+            <div
+              className="text-sm font-semibold mb-2"
+              style={{ color: COLORS.textPrimary }}
+            >
+              Xác nhận xoá
+            </div>
+            <div className="text-sm mb-5" style={{ color: COLORS.textMuted }}>
+              Bạn có chắc muốn xoá ca làm này?
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setDeleteConfirmId(null)}
+                className="text-xs font-semibold rounded-lg px-4 py-2"
+                style={{ background: COLORS.bgSubtle, color: COLORS.textMuted }}
+              >
+                Huỷ
+              </button>
+              <button
+                onClick={() => handleDelete(deleteConfirmId)}
+                className="text-xs font-semibold rounded-lg px-4 py-2"
+                style={{ background: COLORS.red, color: "#FFFFFF" }}
+              >
+                Xoá
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Staff Form Sheet ---- */}
+      {staffFormOpen && (
+        <div
+          className="fixed inset-0 flex items-end sm:items-center justify-center z-50"
+          style={{ background: "rgba(15,18,24,0.45)" }}
+          onClick={() => setStaffFormOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 sheet-in"
+            style={{ background: COLORS.surface }}
+          >
+            <div
+              className="w-9 h-1 rounded-full mx-auto mb-4 sm:hidden"
+              style={{ background: COLORS.border }}
+            />
+            <div className="flex items-center justify-between mb-4">
+              <div
+                className="text-lg font-semibold"
+                style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+              >
+                {editingStaffId ? "Sửa nhân viên" : "Thêm nhân viên"}
+              </div>
+              <button
+                onClick={() => setStaffFormOpen(false)}
+                style={{ color: COLORS.textFaint }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="flex flex-col gap-3">
+              <div>
+                <label
+                  className="text-xs font-medium mb-1 block"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Tên nhân viên
+                </label>
+                <input
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  placeholder="VD: Nguyễn Thị Lan"
+                  className="w-full rounded-xl px-4 py-3 text-sm"
+                  style={{
+                    background: COLORS.bgSubtle,
+                    border: `1px solid ${COLORS.border}`,
+                    color: COLORS.textPrimary,
+                  }}
+                />
+              </div>
+              <div>
+                <label
+                  className="text-xs font-medium mb-1 block"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Lương / giờ (VNĐ)
+                </label>
+                <input
+                  value={formRate}
+                  onChange={(e) =>
+                    setFormRate(e.target.value.replace(/[^0-9]/g, ""))
+                  }
+                  placeholder="VD: 60000"
+                  inputMode="numeric"
+                  className="w-full rounded-xl px-4 py-3 text-sm"
+                  style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    background: COLORS.bgSubtle,
+                    border: `1px solid ${COLORS.border}`,
+                    color: COLORS.textPrimary,
+                  }}
+                />
+              </div>
+              <button
+                onClick={saveStaffForm}
+                className="rounded-xl py-3.5 text-sm font-semibold mt-1"
+                style={{ background: COLORS.primary, color: "#FFFFFF" }}
+              >
                 {editingStaffId ? "Lưu thay đổi" : "Thêm nhân viên"}
               </button>
             </div>
@@ -901,305 +1682,734 @@ export default function App() {
         </div>
       )}
 
-      {/* Bottom sheet: thêm / sửa phòng */}
+      {/* ---- Invoice View ---- */}
+      {invoiceSession && (
+        <InvoiceView
+          session={invoiceSession}
+          staffRate={staffById[invoiceSession.staffId]?.rate ?? 0}
+          onClose={() => setInvoiceSession(null)}
+        />
+      )}
+
+      {/* ---- Room Form Sheet ---- */}
       {roomFormOpen && (
-        <div className="fixed inset-0 flex items-end sm:items-center justify-center z-50" style={{ background: "rgba(15,18,24,0.45)" }} onClick={() => setRoomFormOpen(false)}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 sheet-in" style={{ background: COLORS.surface }}>
-            <div className="w-9 h-1 rounded-full mx-auto mb-4 sm:hidden" style={{ background: COLORS.border }} />
+        <div
+          className="fixed inset-0 flex items-end sm:items-center justify-center z-50"
+          style={{ background: "rgba(15,18,24,0.45)" }}
+          onClick={() => setRoomFormOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 sheet-in"
+            style={{ background: COLORS.surface }}
+          >
+            <div
+              className="w-9 h-1 rounded-full mx-auto mb-4 sm:hidden"
+              style={{ background: COLORS.border }}
+            />
             <div className="flex items-center justify-between mb-4">
-              <div className="text-lg font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{editingRoomId ? "Sửa phòng" : "Thêm phòng"}</div>
-              <button onClick={() => setRoomFormOpen(false)} style={{ color: COLORS.textFaint }}><X size={20} /></button>
+              <div
+                className="text-lg font-semibold"
+                style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+              >
+                {editingRoomId ? "Sửa địa điểm" : "Thêm địa điểm"}
+              </div>
+              <button
+                onClick={() => setRoomFormOpen(false)}
+                style={{ color: COLORS.textFaint }}
+              >
+                <X size={20} />
+              </button>
             </div>
             <div className="flex flex-col gap-3">
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: COLORS.textMuted }}>Tên phòng</label>
-                <input value={formRoomName} onChange={(e) => setFormRoomName(e.target.value)} placeholder="VD: Phòng 6" className="w-full rounded-xl px-4 py-3 text-sm" style={{ background: COLORS.bgSubtle, border: `1px solid ${COLORS.border}`, color: COLORS.textPrimary }} />
+                <label
+                  className="text-xs font-medium mb-1 block"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Tên địa điểm
+                </label>
+                <input
+                  value={formRoomName}
+                  onChange={(e) => setFormRoomName(e.target.value)}
+                  placeholder="VD: Địa điểm 1"
+                  className="w-full rounded-xl px-4 py-3 text-sm"
+                  style={{
+                    background: COLORS.bgSubtle,
+                    border: `1px solid ${COLORS.border}`,
+                    color: COLORS.textPrimary,
+                  }}
+                />
               </div>
-              <button onClick={saveRoomForm} className="rounded-xl py-3.5 text-sm font-semibold mt-1" style={{ background: COLORS.primary, color: "#FFFFFF" }}>
-                {editingRoomId ? "Lưu thay đổi" : "Thêm phòng"}
+              <button
+                onClick={saveRoomForm}
+                className="rounded-xl py-3.5 text-sm font-semibold mt-1"
+                style={{ background: COLORS.primary, color: "#FFFFFF" }}
+              >
+                {editingRoomId ? "Lưu thay đổi" : "Thêm địa điểm"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Quick Check-in modal */}
-      {quickCheckinOpen && (
-        <div className="fixed inset-0 flex items-end sm:items-center justify-center z-50" style={{ background: "rgba(15,18,24,0.45)" }} onClick={resetQuickCheckin}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 sheet-in" style={{ background: COLORS.surface }}>
-            <div className="w-9 h-1 rounded-full mx-auto mb-4 sm:hidden" style={{ background: COLORS.border }} />
+      {/* ---- Filter Modal ---- */}
+      {showFilters && (
+        <div
+          className="fixed inset-0 flex items-end sm:items-center justify-center z-50"
+          style={{ background: "rgba(15,18,24,0.45)" }}
+          onClick={() => setShowFilters(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 sheet-in"
+            style={{
+              background: COLORS.surface,
+              maxHeight: "90vh",
+              overflowY: "auto",
+            }}
+          >
+            <div
+              className="w-9 h-1 rounded-full mx-auto mb-4 sm:hidden"
+              style={{ background: COLORS.border }}
+            />
             <div className="flex items-center justify-between mb-4">
-              <div className="text-lg font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Check-in nhanh</div>
-              <button onClick={resetQuickCheckin} style={{ color: COLORS.textFaint }}><X size={20} /></button>
+              <div>
+                <div className="text-xs" style={{ color: COLORS.textFaint }}>
+                  Báo cáo
+                </div>
+                <div
+                  className="text-lg font-semibold"
+                  style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+                >
+                  Bộ lọc
+                </div>
+              </div>
+              <button
+                onClick={() => setShowFilters(false)}
+                style={{ color: COLORS.textFaint }}
+              >
+                <X size={20} />
+              </button>
             </div>
-            <div className="flex flex-col gap-3">
-              {/* Chọn nhân viên */}
+            <div className="flex flex-col gap-4">
               <div>
-                <label className="text-xs font-medium mb-1.5 block" style={{ color: COLORS.textMuted }}>Nhân viên</label>
+                <label
+                  className="text-xs font-medium mb-2 block"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Khoảng thời gian
+                </label>
                 <div className="flex flex-wrap gap-1.5">
-                  {staff.map((p) => (
-                    <button key={p.id} onClick={() => setQcStaffId(p.id)}
-                      className="text-xs font-semibold px-3 py-1.5 rounded-lg"
-                      style={{ background: qcStaffId === p.id ? COLORS.primary : COLORS.bgSubtle, color: qcStaffId === p.id ? "#FFFFFF" : COLORS.textMuted, border: `1px solid ${qcStaffId === p.id ? COLORS.primary : COLORS.border}` }}>
-                      {p.name}
+                  {PERIODS.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => setTempPeriod(p.id)}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-full"
+                      style={{
+                        background:
+                          tempPeriod === p.id ? COLORS.textPrimary : COLORS.bgSubtle,
+                        color: tempPeriod === p.id ? "#FFFFFF" : COLORS.textMuted,
+                        border: `1px solid ${tempPeriod === p.id ? COLORS.textPrimary : COLORS.border}`,
+                      }}
+                    >
+                      {p.label}
                     </button>
                   ))}
                 </div>
               </div>
-              {/* Chọn phòng */}
               <div>
-                <label className="text-xs font-medium mb-1.5 block" style={{ color: COLORS.textMuted }}>Phòng</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {rooms.map((r) => (
-                    <button key={r.id} onClick={() => setQcRoomId(r.id)}
-                      className="text-xs font-semibold px-3 py-1.5 rounded-lg"
-                      style={{ background: qcRoomId === r.id ? COLORS.primary : COLORS.bgSubtle, color: qcRoomId === r.id ? "#FFFFFF" : COLORS.textMuted, border: `1px solid ${qcRoomId === r.id ? COLORS.primary : COLORS.border}` }}>
-                      {r.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Thời gian vào */}
-              <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: COLORS.textMuted }}>Giờ vào</label>
-                <input type="time" value={qcStart} onChange={(e) => setQcStart(e.target.value)}
-                  className="w-full rounded-xl px-4 py-3 text-sm"
-                  style={{ background: COLORS.bgSubtle, border: `1px solid ${COLORS.border}`, color: COLORS.textPrimary, fontFamily: "'JetBrains Mono', monospace" }} />
-              </div>
-              {/* Thời gian ra */}
-              <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: COLORS.textMuted }}>Giờ ra</label>
-                <input type="time" value={qcEnd} onChange={(e) => setQcEnd(e.target.value)}
-                  className="w-full rounded-xl px-4 py-3 text-sm"
-                  style={{ background: COLORS.bgSubtle, border: `1px solid ${COLORS.border}`, color: COLORS.textPrimary, fontFamily: "'JetBrains Mono', monospace" }} />
-              </div>
-              {/* Preview + Tạo hoá đơn */}
-              {qcStaffId && qcRoomId && qcStart && qcEnd && qcPerson ? (
-                <div className="rounded-xl p-4" style={{ background: COLORS.bgSubtle, border: `1px solid ${COLORS.border}` }}>
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <div className="text-xs font-medium" style={{ color: COLORS.textMuted }}>{qcPerson.name} · {rooms.find((r) => r.id === qcRoomId)?.name}</div>
-                      <div className="text-sm font-semibold mt-0.5" style={{ color: COLORS.primary }}>{qcHours.toFixed(2)} giờ · {formatMoney(qcAmount)}</div>
-                    </div>
-                  </div>
+                <label
+                  className="text-xs font-medium mb-1.5 block"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Nhân viên
+                </label>
+                <input
+                  type="text"
+                  placeholder="Tìm tên nhân viên..."
+                  value={tempStaffSearch}
+                  onChange={(e) => setTempStaffSearch(e.target.value)}
+                  className="w-full rounded-xl px-4 py-3 text-sm mb-2"
+                  style={{
+                    background: COLORS.bgSubtle,
+                    border: `1px solid ${COLORS.border}`,
+                    color: COLORS.textPrimary,
+                  }}
+                />
+                <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
                   <button
-                    onClick={async () => {
-                      const room = rooms.find((r) => r.id === qcRoomId);
-                      if (!qcPerson || !room) return;
-                      const now = new Date();
-                      const todayStr = now.toISOString().slice(0, 10);
-                      const startTs = new Date(`${todayStr}T${qcStart}:00`).getTime();
-                      let endTs = new Date(`${todayStr}T${qcEnd}:00`).getTime();
-                      if (endTs <= startTs) {
-                        endTs += 86400000;
-                      }
-                      const newSession: CompletedSession = {
-                        id: `quick-${Date.now()}`,
-                        roomName: room.name,
-                        roomId: qcRoomId,
-                        staffId: qcStaffId,
-                        staffName: qcPerson.name,
-                        start: startTs,
-                        end: endTs,
-                        hours: qcHours,
-                        amount: qcAmount,
-                        invoiceImage: null,
-                      };
-                      setCompletedSessions((prev) => [...prev, newSession]);
-                      resetQuickCheckin();
-                      const imgDiv = document.createElement("div");
-                      imgDiv.style.position = "fixed"; imgDiv.style.left = "-9999px"; imgDiv.style.top = "0";
-                      document.body.appendChild(imgDiv);
-                      const root = document.createElement("div");
-                      root.innerHTML = `<div style="background:#FFFFFF;padding:24px;width:360px;font-family:sans-serif">
-                        <div style="font-size:18px;font-weight:700;margin-bottom:12px;color:#15181F">Hoá đơn ca làm</div>
-                        <div style="font-size:13px;margin-bottom:4px;color:#15181F"><strong>${newSession.staffName}</strong></div>
-                        <div style="font-size:11px;color:#9AA1AC;margin-bottom:12px">${room.name} · ${formatDate(new Date(newSession.start))}</div>
-                        <div style="display:flex;justify-content:space-between;font-size:12px;color:#6B7280;margin-bottom:8px">
-                          <span>Giờ vào: ${formatClock(new Date(newSession.start))}</span>
-                          <span>Giờ ra: ${formatClock(new Date(newSession.end))}</span>
-                        </div>
-                        <div style="border-top:1px solid #E7E9EE;padding-top:10px;display:flex;justify-content:space-between;font-size:14px;font-weight:700;color:#15181F">
-                          <span>${newSession.hours.toFixed(2)} giờ</span>
-                          <span>${formatMoney(newSession.amount)}</span>
-                        </div>
-                      </div>`;
-                      imgDiv.appendChild(root);
-                      try {
-                        const { toPng } = await import("html-to-image");
-                        const dataUrl = await toPng(root, { quality: 1, pixelRatio: 2, backgroundColor: "#FFFFFF" });
-                        setCompletedSessions((prev) => prev.map((s) => s.id === newSession.id ? { ...s, invoiceImage: dataUrl } : s));
-                        downloadInvoice(dataUrl, `hoa-don_${newSession.staffName}_${formatDate(new Date(newSession.start))}.png`);
-                      } catch { /* ignore */ }
-                      document.body.removeChild(imgDiv);
+                    onClick={() => { setTempFilterStaffId("all"); setTempStaffSearch(""); }}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-lg"
+                    style={{
+                      background:
+                        tempFilterStaffId === "all" ? COLORS.primary : COLORS.bgSubtle,
+                      color:
+                        tempFilterStaffId === "all" ? "#FFFFFF" : COLORS.textMuted,
+                      border: `1px solid ${tempFilterStaffId === "all" ? COLORS.primary : COLORS.border}`,
                     }}
-                    className="w-full rounded-xl py-3 text-sm font-semibold flex items-center justify-center gap-2"
-                    style={{ background: qcHours > 0 ? COLORS.primary : COLORS.border, color: "#FFFFFF" }}
                   >
-                    <Download size={16} /> Tạo hoá đơn
+                    Tất cả
                   </button>
+                  {staff
+                    .filter((s) =>
+                      s.name.toLowerCase().includes(tempStaffSearch.toLowerCase())
+                    )
+                    .map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => { setTempFilterStaffId(p.id); setTempStaffSearch(""); }}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-lg"
+                        style={{
+                          background:
+                            tempFilterStaffId === p.id ? COLORS.primary : COLORS.bgSubtle,
+                          color:
+                            tempFilterStaffId === p.id ? "#FFFFFF" : COLORS.textMuted,
+                          border: `1px solid ${tempFilterStaffId === p.id ? COLORS.primary : COLORS.border}`,
+                        }}
+                      >
+                        {p.name}
+                      </button>
+                    ))}
                 </div>
-              ) : (
-                <div className="text-xs text-center py-3" style={{ color: COLORS.textFaint }}>Chọn nhân viên, phòng, giờ vào và giờ ra</div>
-              )}
+              </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Invoice modal */}
-      {invoiceModal.session && (
-        <div className="fixed inset-0 flex items-end sm:items-center justify-center z-50" style={{ background: "rgba(15,18,24,0.45)" }} onClick={() => setInvoiceModal({ session: null, generated: false })}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 sheet-in" style={{ background: COLORS.surface }}>
-            <div className="w-9 h-1 rounded-full mx-auto mb-4 sm:hidden" style={{ background: COLORS.border }} />
-            <div className="flex items-center justify-between mb-4">
-              <div className="text-lg font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Hoá đơn ca làm</div>
-              <button onClick={() => setInvoiceModal({ session: null, generated: false })} style={{ color: COLORS.textFaint }}><X size={20} /></button>
-            </div>
-
-            {/* Invoice template - captured directly from DOM */}
-            <div ref={invoiceRef}>
-              <InvoicePreview session={invoiceModal.session} />
-            </div>
-
             <button
-              onClick={async () => {
-                if (!invoiceModal.generated) {
-                  await generateInvoiceImage();
-                }
-                const s = completedSessions.find((cs) => cs.id === invoiceModal.session?.id);
-                if (s?.invoiceImage) {
-                  downloadInvoice(s.invoiceImage, `hoa-don_${s.staffName}_${formatDate(new Date(s.start))}.png`);
-                }
+              onClick={() => {
+                setPeriod(tempPeriod);
+                setFilterStaffId(tempFilterStaffId);
+                setShowFilters(false);
               }}
-              className="w-full rounded-xl py-3.5 text-sm font-semibold mt-4 flex items-center justify-center gap-2"
+              className="w-full rounded-xl py-3.5 text-sm font-semibold mt-4"
               style={{ background: COLORS.primary, color: "#FFFFFF" }}
             >
-              <Download size={16} /> Lưu hoá đơn
+              Áp dụng
             </button>
-            <div className="text-xs text-center mt-2" style={{ color: COLORS.textFaint }}>Nhấn để tải ảnh hoá đơn về máy</div>
           </div>
-        </div>
-      )}
-
-      {/* Invoice fullscreen viewer (from payroll) */}
-      {viewerInvoice && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center p-4" style={{ background: "rgba(10,12,16,0.85)" }} onClick={() => setViewerInvoice(null)}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={viewerInvoice} alt="Hoá đơn" className="max-w-full max-h-[80vh] rounded-2xl" onClick={(e) => e.stopPropagation()} />
-          <button
-            onClick={(e) => { e.stopPropagation(); downloadInvoice(viewerInvoice, `hoa-don.png`); }}
-            className="mt-4 rounded-xl py-3 px-6 text-sm font-semibold flex items-center gap-2"
-            style={{ background: COLORS.primary, color: "#FFFFFF" }}
-          >
-            <Download size={16} /> Tải hoá đơn
-          </button>
         </div>
       )}
 
       {/* Toast */}
       {toast && (
-        <div className="fixed bottom-8 left-1/2 z-50 toast-in" style={{ transform: "translateX(-50%)" }}>
-          <div className="px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg" style={{ background: COLORS.primary, color: "#FFFFFF" }}>
+        <div
+          className="fixed bottom-28 left-1/2 z-50 toast-in"
+          style={{ transform: "translateX(-50%)" }}
+        >
+          <div
+            className="px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg"
+            style={{
+              background:
+                toast.type === "success" ? COLORS.primary : COLORS.red,
+              color: "#FFFFFF",
+            }}
+          >
             {toast.text}
           </div>
         </div>
       )}
-
-      {/* FAB - Quick Check-in */}
-      {!quickCheckinOpen && (
-        <button onClick={() => setQuickCheckinOpen(true)} className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-xl" style={{ background: COLORS.primary, color: "#FFFFFF" }}>
-          <Clock size={24} />
-        </button>
-      )}
     </div>
   );
 }
 
-// ---- Invoice Components ----
-
-function InvoicePreview({ session }: { session: CompletedSession }) {
+// ---- Check-in Card Component ----
+function CheckinCard({
+  session,
+  onEdit,
+  onDelete,
+  onInvoice,
+}: {
+  session: CompletedSession;
+  onEdit: () => void;
+  onDelete: () => void;
+  onInvoice: () => void;
+}) {
   return (
-    <div style={{ background: "#FFFFFF", padding: 32, fontFamily: "Arial, sans-serif", borderRadius: 12, border: `1px solid ${COLORS.border}`, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-      <div style={{ textAlign: "center", marginBottom: 24 }}>
-        <div style={{ fontSize: 22, fontWeight: 700, color: "#15181F" }}>HOÁ ĐƠN CA LÀM</div>
-        <div style={{ fontSize: 11, color: "#9AA1AC", marginTop: 4 }}>{formatDate(new Date(session.start))}</div>
+    <div
+      className="rounded-2xl p-4"
+      style={{
+        background: COLORS.surface,
+        border: `1px solid ${COLORS.border}`,
+        boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
+      }}
+    >
+      <div className="flex items-start justify-between">
+        <div className="min-w-0 flex-1">
+          {/* Time range */}
+          <div className="flex items-center gap-2 mb-2">
+            <div
+              className="flex items-center gap-1 text-sm font-semibold"
+              style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              <LogIn size={14} color={COLORS.green} />
+              {formatClock(new Date(session.start))}
+            </div>
+            <div className="text-xs" style={{ color: COLORS.textFaint }}>
+              →
+            </div>
+            <div
+              className="flex items-center gap-1 text-sm font-semibold"
+              style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              <LogOut size={14} color={COLORS.red} />
+              {formatClock(new Date(session.end))}
+            </div>
+          </div>
+          {/* Staff + Room */}
+          <div className="text-sm" style={{ color: COLORS.textMuted }}>
+            <div className="font-medium" style={{ color: COLORS.textPrimary }}>
+              {session.staffName}
+            </div>
+            <div>{session.roomName}</div>
+          </div>
+          {/* Stats */}
+          <div className="flex items-center gap-3 mt-1.5">
+            <span
+              className="text-xs font-semibold"
+              style={{ color: COLORS.textMuted }}
+            >
+              <span
+                className="inline-block w-1.5 h-1.5 rounded-full mr-1"
+                style={{ background: COLORS.green }}
+              />
+              {formatDuration(session.hours)}
+            </span>
+            <span
+              className="text-sm font-bold"
+              style={{
+                fontFamily: "'Space Grotesk', sans-serif",
+                color: COLORS.primary,
+              }}
+            >
+              {formatMoney(session.amount)}
+            </span>
+          </div>
+        </div>
+        {/* Actions */}
+        <div className="flex items-center gap-1 shrink-0 ml-3">
+          <button
+            onClick={onInvoice}
+            className="rounded-lg p-2"
+            style={{ color: COLORS.blue, background: "#EBF0FE" }}
+          >
+            <Receipt size={14} />
+          </button>
+          <button
+            onClick={onEdit}
+            className="rounded-lg p-2"
+            style={{ color: COLORS.textMuted, background: COLORS.bgSubtle }}
+          >
+            <Pencil size={14} />
+          </button>
+          <button
+            onClick={onDelete}
+            className="rounded-lg p-2"
+            style={{ color: COLORS.red, background: COLORS.redSoft }}
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
       </div>
-      <table style={{ width: "100%", fontSize: 14, lineHeight: 2 }}>
-        <tbody>
-          <tr>
-            <td style={{ color: "#6B7280", paddingRight: 16, whiteSpace: "nowrap", paddingTop: 4, paddingBottom: 4 }}>Nhân viên</td>
-            <td style={{ fontWeight: 600, color: "#15181F", textAlign: "right", paddingTop: 4, paddingBottom: 4 }}>{session.staffName}</td>
-          </tr>
-          <tr><td colSpan={2} style={{ borderTop: "1px dashed #E7E9EE", height: 4 }} /></tr>
-          <tr>
-            <td style={{ color: "#6B7280", paddingRight: 16, whiteSpace: "nowrap", paddingTop: 4, paddingBottom: 4 }}>Phòng</td>
-            <td style={{ fontWeight: 500, color: "#15181F", textAlign: "right", paddingTop: 4, paddingBottom: 4 }}>{session.roomName}</td>
-          </tr>
-          <tr>
-            <td style={{ color: "#6B7280", paddingRight: 16, whiteSpace: "nowrap", paddingTop: 4, paddingBottom: 4 }}>Giờ vào</td>
-            <td style={{ fontWeight: 500, color: "#15181F", textAlign: "right", paddingTop: 4, paddingBottom: 4 }}>{formatClock(new Date(session.start))}</td>
-          </tr>
-          <tr>
-            <td style={{ color: "#6B7280", paddingRight: 16, whiteSpace: "nowrap", paddingTop: 4, paddingBottom: 4 }}>Giờ ra</td>
-            <td style={{ fontWeight: 500, color: "#15181F", textAlign: "right", paddingTop: 4, paddingBottom: 4 }}>{formatClock(new Date(session.end))}</td>
-          </tr>
-          <tr>
-            <td style={{ color: "#6B7280", paddingRight: 16, whiteSpace: "nowrap", paddingTop: 4, paddingBottom: 4 }}>Tổng thời gian</td>
-            <td style={{ fontWeight: 500, color: "#15181F", textAlign: "right", paddingTop: 4, paddingBottom: 4 }}>{session.hours.toFixed(2)} giờ</td>
-          </tr>
-          <tr><td colSpan={2} style={{ borderTop: "2px solid #15181F", height: 4 }} /></tr>
-          <tr>
-            <td style={{ fontSize: 16, fontWeight: 700, color: "#15181F", paddingTop: 8 }}>Thành tiền</td>
-            <td style={{ fontSize: 22, fontWeight: 700, color: "#15181F", textAlign: "right", paddingTop: 8, fontFamily: "'Courier New', monospace" }}>{formatMoney(session.amount)}</td>
-          </tr>
-        </tbody>
-      </table>
     </div>
   );
 }
 
-// ---- KPI Card Component ----
+// ---- Invoice View Component ----
+function InvoiceView({
+  session,
+  staffRate,
+  onClose,
+}: {
+  session: CompletedSession;
+  staffRate: number;
+  onClose: () => void;
+}) {
+  const startDate = new Date(session.start);
+  const endDate = new Date(session.end);
+  const dayOfWeek = startDate.toLocaleDateString("vi-VN", { weekday: "long" });
 
-function KpiCard({ icon, value, label, sub, accent }: {
+  return (
+    <div
+      className="fixed inset-0 flex items-center justify-center z-50 p-4"
+      style={{ background: "rgba(0,0,0,0.88)" }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-sm"
+        style={{ boxShadow: "0 25px 80px rgba(0,0,0,0.35)" }}
+      >
+        {/* === Receipt paper === */}
+        <div
+          style={{
+            background: "#FEFEF7",
+            border: `1px solid ${COLORS.border}`,
+          }}
+        >
+          <div className="px-5 pt-6 pb-4">
+            {/* ---- Top thick border ---- */}
+            <div
+              className="mb-4"
+              style={{
+                height: 4,
+                background: COLORS.textPrimary,
+                borderRadius: 2,
+              }}
+            />
+
+            {/* ---- Header ---- */}
+            <div className="text-center mb-4">
+              <div
+                className="text-[11px] font-semibold tracking-[0.15em]"
+                style={{ color: COLORS.textFaint }}
+              >
+                QUẢN LÝ CA
+              </div>
+              <div
+                className="text-lg font-bold mt-0.5"
+                style={{
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  color: COLORS.textPrimary,
+                  letterSpacing: "0.5px",
+                }}
+              >
+                HÓA ĐƠN CHẤM CÔNG
+              </div>
+              <div className="flex items-center justify-center gap-2 mt-2">
+                <div
+                  className="flex-1"
+                  style={{
+                    height: 1,
+                    backgroundImage: `repeating-linear-gradient(to right, ${COLORS.border} 0px, ${COLORS.border} 5px, transparent 5px, transparent 8px)`,
+                  }}
+                />
+                <span
+                  className="text-[9px] font-mono tracking-wider"
+                  style={{ color: COLORS.textFaint }}
+                >
+                  #{session.id.slice(0, 8).toUpperCase()}
+                </span>
+                <div
+                  className="flex-1"
+                  style={{
+                    height: 1,
+                    backgroundImage: `repeating-linear-gradient(to right, ${COLORS.border} 0px, ${COLORS.border} 5px, transparent 5px, transparent 8px)`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* ---- Dashed divider ---- */}
+            <div
+              className="mb-4"
+              style={{
+                height: 1,
+                backgroundImage: `repeating-linear-gradient(to right, ${COLORS.border} 0px, ${COLORS.border} 6px, transparent 6px, transparent 10px)`,
+              }}
+            />
+
+            {/* ---- Info section ---- */}
+            <div className="flex flex-col gap-2.5">
+              <div className="flex items-center justify-between">
+                <span
+                  className="text-[11px] uppercase tracking-wider font-semibold"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Ngày
+                </span>
+                <span
+                  className="text-sm font-medium"
+                  style={{ color: COLORS.textPrimary }}
+                >
+                  {formatDate(startDate)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span
+                  className="text-[11px] uppercase tracking-wider font-semibold"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Thứ
+                </span>
+                <span className="text-sm" style={{ color: COLORS.textMuted }}>
+                  {dayOfWeek}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span
+                  className="text-[11px] uppercase tracking-wider font-semibold"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Nhân viên
+                </span>
+                <span
+                  className="text-sm font-medium"
+                  style={{ color: COLORS.textPrimary }}
+                >
+                  {session.staffName}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span
+                  className="text-[11px] uppercase tracking-wider font-semibold"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Địa điểm
+                </span>
+                <span
+                  className="text-sm font-medium"
+                  style={{ color: COLORS.textPrimary }}
+                >
+                  {session.roomName}
+                </span>
+              </div>
+            </div>
+
+            {/* ---- Solid divider ---- */}
+            <div
+              className="my-4"
+              style={{ height: 1, background: COLORS.border }}
+            />
+
+            {/* ---- Time section ---- */}
+            <div className="flex flex-col gap-2.5">
+              <div className="flex items-center justify-between">
+                <span
+                  className="text-[11px] uppercase tracking-wider font-semibold"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Giờ vào
+                </span>
+                <span
+                  className="text-sm font-semibold font-mono"
+                  style={{
+                    fontVariantNumeric: "tabular-nums",
+                    color: COLORS.textPrimary,
+                  }}
+                >
+                  {formatClock(startDate)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span
+                  className="text-[11px] uppercase tracking-wider font-semibold"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Giờ ra
+                </span>
+                <span
+                  className="text-sm font-semibold font-mono"
+                  style={{
+                    fontVariantNumeric: "tabular-nums",
+                    color: COLORS.textPrimary,
+                  }}
+                >
+                  {formatClock(endDate)}
+                </span>
+              </div>
+              <div
+                className="flex items-center justify-between pt-1"
+                style={{ borderTop: `1px dashed ${COLORS.border}` }}
+              >
+                <span
+                  className="text-[11px] uppercase tracking-wider font-semibold"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Tổng giờ
+                </span>
+                <span
+                  className="text-sm font-bold font-mono"
+                  style={{
+                    fontVariantNumeric: "tabular-nums",
+                    color: COLORS.textPrimary,
+                  }}
+                >
+                  {formatDuration(session.hours)}
+                </span>
+              </div>
+            </div>
+
+            {/* ---- Solid divider ---- */}
+            <div
+              className="my-4"
+              style={{ height: 1, background: COLORS.border }}
+            />
+
+            {/* ---- Payment section ---- */}
+            <div className="flex flex-col gap-2.5">
+              <div className="flex items-center justify-between">
+                <span
+                  className="text-[11px] uppercase tracking-wider font-semibold"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  Đơn giá
+                </span>
+                <span
+                  className="text-sm font-mono"
+                  style={{ color: COLORS.textMuted }}
+                >
+                  {formatMoney(staffRate)} / giờ
+                </span>
+              </div>
+              <div
+                className="flex items-center justify-between py-2.5 px-3 -mx-3"
+                style={{ background: COLORS.textPrimary, borderRadius: 8 }}
+              >
+                <span
+                  className="text-sm font-bold uppercase tracking-wider"
+                  style={{ color: "#FFFFFF" }}
+                >
+                  Thành tiền
+                </span>
+                <span
+                  className="text-xl font-bold"
+                  style={{
+                    fontFamily: "'Space Grotesk', sans-serif",
+                    color: "#FFFFFF",
+                  }}
+                >
+                  {formatMoney(session.amount)}
+                </span>
+              </div>
+            </div>
+
+            {/* ---- Dashed divider ---- */}
+            <div
+              className="my-4"
+              style={{
+                height: 1,
+                backgroundImage: `repeating-linear-gradient(to right, ${COLORS.border} 0px, ${COLORS.border} 6px, transparent 6px, transparent 10px)`,
+              }}
+            />
+
+            {/* ---- Footer ---- */}
+            <div className="text-center">
+              <div
+                className="text-[10px] italic"
+                style={{ color: COLORS.textFaint }}
+              >
+                Cảm ơn quý khách!
+              </div>
+              <div className="flex items-center gap-1.5 justify-center mt-2">
+                <span
+                  className="text-[8px]"
+                  style={{ color: COLORS.textFaint }}
+                >
+                  ✂
+                </span>
+                <span
+                  className="text-[7px] font-mono tracking-[0.2em]"
+                  style={{ color: COLORS.textFaint }}
+                >
+                  CẮT THEO ĐƯỜNG NÀY
+                </span>
+                <span
+                  className="text-[8px]"
+                  style={{ color: COLORS.textFaint }}
+                >
+                  ✂
+                </span>
+              </div>
+              <div
+                className="mt-1"
+                style={{
+                  height: 1,
+                  backgroundImage: `repeating-linear-gradient(to right, ${COLORS.border} 0px, ${COLORS.border} 3px, transparent 3px, transparent 6px)`,
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* ---- Close button ---- */}
+        <button
+          onClick={onClose}
+          className="w-full py-3.5 text-sm font-semibold tracking-wider"
+          style={{ background: COLORS.textPrimary, color: "#FFFFFF" }}
+        >
+          ĐÓNG
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---- KPI Card ----
+function KpiCard({
+  icon,
+  value,
+  label,
+  accent,
+}: {
   icon: React.ReactNode;
   value: string;
   label: string;
-  sub: string;
   accent?: boolean;
 }) {
   if (accent) {
     return (
-      <div className="rounded-2xl p-4 flex flex-col justify-between" style={{ background: COLORS.textPrimary, minHeight: 120 }}>
+      <div
+        className="rounded-2xl p-4 flex flex-col gap-2"
+        style={{ background: COLORS.textPrimary, minHeight: 90 }}
+      >
         <div className="flex items-center justify-between">
           <div style={{ color: "rgba(255,255,255,0.9)" }}>{icon}</div>
-          <span className="text-[11px] font-medium" style={{ color: "rgba(255,255,255,0.6)" }}>{sub}</span>
         </div>
-        <div className="mt-auto">
-          <div className="text-[11px] font-semibold tracking-wider mb-0.5" style={{ color: "rgba(255,255,255,0.6)" }}>{label}</div>
-          <div className="text-2xl font-bold" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#FFFFFF" }}>{value}</div>
+        <div
+          className="text-[11px] font-semibold tracking-wider"
+          style={{ color: "rgba(255,255,255,0.6)" }}
+        >
+          {label}
+        </div>
+        <div
+          className="text-2xl font-bold"
+          style={{
+            fontFamily: "'Space Grotesk', sans-serif",
+            color: "#FFFFFF",
+          }}
+        >
+          {value}
         </div>
       </div>
     );
   }
   return (
-    <div className="rounded-2xl p-4 flex flex-col justify-between" style={{ background: COLORS.surface, border: `1.5px solid ${COLORS.textPrimary}`, minHeight: 120 }}>
+    <div
+      className="rounded-2xl p-4 flex flex-col gap-2"
+      style={{
+        background: COLORS.surface,
+        border: `1.5px solid ${COLORS.textPrimary}`,
+        minHeight: 90,
+      }}
+    >
       <div className="flex items-center justify-between">
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: COLORS.primarySoft, color: COLORS.textPrimary }}>{icon}</div>
-        <span className="text-[11px] font-semibold px-2 py-0.5" style={{ background: "#DBEAF4", color: COLORS.blue, borderRadius: 999 }}>{sub}</span>
+        <div
+          className="w-8 h-8 rounded-xl flex items-center justify-center"
+          style={{ background: COLORS.primarySoft, color: COLORS.textPrimary }}
+        >
+          {icon}
+        </div>
       </div>
-      <div className="mt-auto">
-        <div className="text-[11px] font-semibold tracking-wider mb-0.5" style={{ color: COLORS.textFaint }}>{label}</div>
-        <div className="text-2xl font-bold" style={{ fontFamily: "'Space Grotesk', sans-serif", color: COLORS.textPrimary }}>{value}</div>
+      <div
+        className="text-[11px] font-semibold tracking-wider"
+        style={{ color: COLORS.textFaint }}
+      >
+        {label}
+      </div>
+      <div
+        className="text-2xl font-bold"
+        style={{
+          fontFamily: "'Space Grotesk', sans-serif",
+          color: COLORS.textPrimary,
+        }}
+      >
+        {value}
       </div>
     </div>
-  );
-}
-
-function StatusTag({ active }: { active: boolean }) {
-  return (
-    <span className="text-xs font-medium px-2 py-1 rounded-full" style={{ background: active ? COLORS.primarySoft : COLORS.bgSubtle, color: active ? COLORS.textPrimary : COLORS.textMuted }}>
-      {active ? "Đang phục vụ" : "Trống"}
-    </span>
   );
 }
