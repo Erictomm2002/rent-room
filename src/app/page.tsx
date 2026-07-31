@@ -426,11 +426,13 @@ export default function App() {
   // ---- Payroll ----
   const periodCutoff = PERIODS.find((p) => p.id === period)!.cutoff();
   const filteredCompleted = useMemo(
-    () => completedSessions.filter((s) => {
-      if (s.start < periodCutoff) return false;
-      if (filterStaffId !== "all" && s.staffId !== filterStaffId) return false;
-      return true;
-    }),
+    () =>
+      completedSessions.filter((s) => {
+        if (s.start < periodCutoff) return false;
+        if (filterStaffId !== "all" && s.staffId !== filterStaffId)
+          return false;
+        return true;
+      }),
     [completedSessions, periodCutoff, filterStaffId],
   );
   const payrollByStaff: PayrollGroup[] = useMemo(() => {
@@ -849,7 +851,6 @@ export default function App() {
         {/* ---------------- TAB: PAYROLL ---------------- */}
         {tab === "report" && (
           <div className="flex flex-col gap-3">
-
             <div
               className="rounded-2xl p-5"
               style={{ background: COLORS.textPrimary, color: "#FFFFFF" }}
@@ -858,7 +859,10 @@ export default function App() {
                 className="text-base font-semibold mb-1.5"
                 style={{ color: "rgba(255,255,255,0.75)" }}
               >
-                Tổng lương · {PERIODS.find((p) => p.id === period)!.label}{filterStaffId !== "all" && staffById[filterStaffId] ? ` · ${staffById[filterStaffId].name}` : ""}
+                Tổng lương · {PERIODS.find((p) => p.id === period)!.label}
+                {filterStaffId !== "all" && staffById[filterStaffId]
+                  ? ` · ${staffById[filterStaffId].name}`
+                  : ""}
               </div>
               <div
                 className="text-4xl font-bold"
@@ -923,72 +927,81 @@ export default function App() {
                     </div>
 
                     <div style={{ borderTop: `1px solid ${COLORS.border}` }}>
-                        {p.sessions.map((s) => (
-                          <div
-                            key={s.id}
-                            className="px-4 py-3"
-                            style={{ borderTop: `1px solid ${COLORS.border}` }}
-                          >
-                            <div className="flex items-center justify-between mb-1.5">
-                              <div
-                                className="text-xs font-medium"
-                                style={{ color: COLORS.textPrimary }}
-                              >
-                                {s.roomName} ·{" "}
-                                {formatDateShort(new Date(s.start))}
-                              </div>
-                              <div
-                                className="text-xs font-semibold"
-                                style={{
-                                  fontFamily: "'JetBrains Mono', monospace",
-                                  fontVariantNumeric: "tabular-nums",
-                                }}
-                              >
-                                {formatMoney(s.amount)}
-                              </div>
+                      {p.sessions.map((s) => (
+                        <div
+                          key={s.id}
+                          className="px-4 py-3"
+                          style={{ borderTop: `1px solid ${COLORS.border}` }}
+                        >
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div
+                              className="text-xs font-medium"
+                              style={{ color: COLORS.textPrimary }}
+                            >
+                              {s.roomName} ·{" "}
+                              {formatDateShort(new Date(s.start))}
                             </div>
-                            <div className="flex items-center justify-between">
-                              <div
-                                className="flex items-center gap-3 text-[11px]"
-                                style={{ color: COLORS.textMuted }}
-                              >
-                                <span className="flex items-center gap-1">
-                                  <LogIn size={11} color={COLORS.primary} />{" "}
-                                  {formatClock(new Date(s.start))}
-                                </span>
-                                <span className="flex items-center gap-1">
-                                  <LogOut size={11} color={COLORS.primary} />{" "}
-                                  {formatClock(new Date(s.end))}
-                                </span>
-                                <span>{formatDuration(s.hours)}</span>
-                              </div>
-                              <div className="flex items-center gap-1 shrink-0 ml-2">
-                                <button
-                                  onClick={() => setInvoiceSession(s)}
-                                  className="rounded-lg p-1.5"
-                                  style={{ color: COLORS.blue, background: "#EBF0FE" }}
-                                >
-                                  <Receipt size={12} />
-                                </button>
-                                <button
-                                  onClick={() => setEditSession(s)}
-                                  className="rounded-lg p-1.5"
-                                  style={{ color: COLORS.textMuted, background: COLORS.bgSubtle }}
-                                >
-                                  <Pencil size={12} />
-                                </button>
-                                <button
-                                  onClick={() => setDeleteConfirmId(s.id)}
-                                  className="rounded-lg p-1.5"
-                                  style={{ color: COLORS.red, background: COLORS.redSoft }}
-                                >
-                                  <Trash2 size={12} />
-                                </button>
-                              </div>
+                            <div
+                              className="text-xs font-semibold"
+                              style={{
+                                fontFamily: "'JetBrains Mono', monospace",
+                                fontVariantNumeric: "tabular-nums",
+                              }}
+                            >
+                              {formatMoney(s.amount)}
                             </div>
                           </div>
-                        ))}
-                      </div>
+                          <div className="flex items-center justify-between">
+                            <div
+                              className="flex items-center gap-3 text-[11px]"
+                              style={{ color: COLORS.textMuted }}
+                            >
+                              <span className="flex items-center gap-1">
+                                <LogIn size={11} color={COLORS.primary} />{" "}
+                                {formatClock(new Date(s.start))}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <LogOut size={11} color={COLORS.primary} />{" "}
+                                {formatClock(new Date(s.end))}
+                              </span>
+                              <span>{formatDuration(s.hours)}</span>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0 ml-2">
+                              <button
+                                onClick={() => setInvoiceSession(s)}
+                                className="rounded-lg p-1.5"
+                                style={{
+                                  color: COLORS.blue,
+                                  background: "#EBF0FE",
+                                }}
+                              >
+                                <Receipt size={12} />
+                              </button>
+                              <button
+                                onClick={() => setEditSession(s)}
+                                className="rounded-lg p-1.5"
+                                style={{
+                                  color: COLORS.textMuted,
+                                  background: COLORS.bgSubtle,
+                                }}
+                              >
+                                <Pencil size={12} />
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirmId(s.id)}
+                                className="rounded-lg p-1.5"
+                                style={{
+                                  color: COLORS.red,
+                                  background: COLORS.redSoft,
+                                }}
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 );
               })
@@ -1121,7 +1134,7 @@ export default function App() {
           style={{ height: 64 }}
         >
           {/* Left icons */}
-          <div className="flex items-center gap-10">
+          <div className="flex items-center gap-8">
             {BOTTOM_TABS.slice(0, 2).map((t) => {
               const Icon = t.icon;
               const isActive = tab === t.id;
@@ -1133,7 +1146,7 @@ export default function App() {
                   style={{ width: 44, height: 44 }}
                 >
                   <Icon
-                    size={26}
+                    size={24}
                     color={isActive ? COLORS.textPrimary : COLORS.textFaint}
                     strokeWidth={isActive ? 2.5 : 2}
                   />
@@ -1162,7 +1175,7 @@ export default function App() {
           </div>
 
           {/* Right icons */}
-          <div className="flex items-center gap-10">
+          <div className="flex items-center gap-8">
             {BOTTOM_TABS.slice(2).map((t) => {
               const Icon = t.icon;
               const isActive = tab === t.id;
@@ -1174,7 +1187,7 @@ export default function App() {
                   style={{ width: 44, height: 44 }}
                 >
                   <Icon
-                    size={26}
+                    size={24}
                     color={isActive ? COLORS.textPrimary : COLORS.textFaint}
                     strokeWidth={isActive ? 2.5 : 2}
                   />
@@ -1808,8 +1821,11 @@ export default function App() {
                       className="text-xs font-semibold px-3 py-1.5 rounded-full"
                       style={{
                         background:
-                          tempPeriod === p.id ? COLORS.textPrimary : COLORS.bgSubtle,
-                        color: tempPeriod === p.id ? "#FFFFFF" : COLORS.textMuted,
+                          tempPeriod === p.id
+                            ? COLORS.textPrimary
+                            : COLORS.bgSubtle,
+                        color:
+                          tempPeriod === p.id ? "#FFFFFF" : COLORS.textMuted,
                         border: `1px solid ${tempPeriod === p.id ? COLORS.textPrimary : COLORS.border}`,
                       }}
                     >
@@ -1839,13 +1855,20 @@ export default function App() {
                 />
                 <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
                   <button
-                    onClick={() => { setTempFilterStaffId("all"); setTempStaffSearch(""); }}
+                    onClick={() => {
+                      setTempFilterStaffId("all");
+                      setTempStaffSearch("");
+                    }}
                     className="text-xs font-semibold px-3 py-1.5 rounded-lg"
                     style={{
                       background:
-                        tempFilterStaffId === "all" ? COLORS.primary : COLORS.bgSubtle,
+                        tempFilterStaffId === "all"
+                          ? COLORS.primary
+                          : COLORS.bgSubtle,
                       color:
-                        tempFilterStaffId === "all" ? "#FFFFFF" : COLORS.textMuted,
+                        tempFilterStaffId === "all"
+                          ? "#FFFFFF"
+                          : COLORS.textMuted,
                       border: `1px solid ${tempFilterStaffId === "all" ? COLORS.primary : COLORS.border}`,
                     }}
                   >
@@ -1853,18 +1876,27 @@ export default function App() {
                   </button>
                   {staff
                     .filter((s) =>
-                      s.name.toLowerCase().includes(tempStaffSearch.toLowerCase())
+                      s.name
+                        .toLowerCase()
+                        .includes(tempStaffSearch.toLowerCase()),
                     )
                     .map((p) => (
                       <button
                         key={p.id}
-                        onClick={() => { setTempFilterStaffId(p.id); setTempStaffSearch(""); }}
+                        onClick={() => {
+                          setTempFilterStaffId(p.id);
+                          setTempStaffSearch("");
+                        }}
                         className="text-xs font-semibold px-3 py-1.5 rounded-lg"
                         style={{
                           background:
-                            tempFilterStaffId === p.id ? COLORS.primary : COLORS.bgSubtle,
+                            tempFilterStaffId === p.id
+                              ? COLORS.primary
+                              : COLORS.bgSubtle,
                           color:
-                            tempFilterStaffId === p.id ? "#FFFFFF" : COLORS.textMuted,
+                            tempFilterStaffId === p.id
+                              ? "#FFFFFF"
+                              : COLORS.textMuted,
                           border: `1px solid ${tempFilterStaffId === p.id ? COLORS.primary : COLORS.border}`,
                         }}
                       >
